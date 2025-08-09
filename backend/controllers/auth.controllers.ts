@@ -16,13 +16,31 @@ import {
   AuthResponse,
   UpdateProfileRequestBody,
 } from "../types/user.types";
+import { verifyGoogleToken, verifyAppleToken } from "../utils/oath.utils";
 import {
   getVerificationEmailTemplate,
   getResetPasswordEmailTemplate,
-  verifyGoogleToken,
-  verifyAppleToken,
-} from "../utils/oath.utils";
-import mongoose from "mongoose";
+} from "../utils/useEmailTemplate";
+
+// Helper function to check if email is super admin
+const isSuperAdminEmail = (email: string): boolean => {
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+  if (!superAdminEmail) {
+    console.warn("SUPER_ADMIN_EMAIL environment variable is not set");
+    return false;
+  }
+  return email.toLowerCase() === superAdminEmail.toLowerCase();
+};
+
+// Helper function to apply super admin properties
+const applySuperAdminProperties = (userDoc: any) => {
+  userDoc.userRole = "super_admin";
+  userDoc.systemAdminName = process.env.SUPER_ADMIN_NAME || "Super Admin";
+  userDoc.isSuperAdmin = true;
+  userDoc.isAdmin = true;
+  userDoc.isVerified = true;
+  return userDoc;
+};
 
 export const signup = async (
   req: Request<{}, AuthResponse, SignupRequestBody>,
@@ -58,31 +76,25 @@ export const signup = async (
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
     // Check if super admin email
-    const isSuperAdminEmail =
-      email.toLowerCase() === process.env.SUPER_ADMIN_EMAIL?.toLowerCase();
+    const isSuper = isSuperAdminEmail(email);
 
-    // Create new user
-    const _id: mongoose.Types.ObjectId = new mongoose.Types.ObjectId();
     const newUser = new User({
-      _id,
       name: name.trim(),
       email: email.toLowerCase(),
       password: hashedPassword,
       verificationToken,
       verificationExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      ...(isSuperAdminEmail && {
-        userRole: "super_admin",
-        systemAdminName: process.env.SUPER_ADMIN_NAME,
-        isSuperAdmin: true,
-        isAdmin: true,
-        isVerified: true, // Auto-verify super admin
-      }),
     });
+
+    // Apply super admin properties if needed
+    if (isSuper) {
+      applySuperAdminProperties(newUser);
+    }
 
     await newUser.save();
 
     // Send verification email (except for super admin)
-    if (!isSuperAdminEmail) {
+    if (!isSuper) {
       try {
         await sendEmail({
           to: email,
@@ -349,6 +361,9 @@ export const googleAuth = async (
     // Verify Google token
     const googleUser = await verifyGoogleToken(idToken);
 
+    // Check if super admin email
+    const isSuper = isSuperAdminEmail(googleUser.email);
+
     // Check if user exists
     let user = await User.findOne({
       $or: [
@@ -368,6 +383,12 @@ export const googleAuth = async (
           user.avatar = googleUser.avatar;
         }
       }
+
+      // Apply super admin properties if needed and not already set
+      if (isSuper && !user.isSuperAdmin) {
+        applySuperAdminProperties(user);
+      }
+
       user.lastLogin = new Date();
       await user.save();
     } else {
@@ -381,6 +402,12 @@ export const googleAuth = async (
         isVerified: true, // Google emails are pre-verified
         lastLogin: new Date(),
       });
+
+      // Apply super admin properties if needed
+      if (isSuper) {
+        applySuperAdminProperties(user);
+      }
+
       await user.save();
     }
 
@@ -430,6 +457,9 @@ export const appleAuth = async (
       userName = `${appleUserData.name.firstName} ${appleUserData.name.lastName}`;
     }
 
+    // Check if super admin email
+    const isSuper = isSuperAdminEmail(appleUser.email);
+
     // Check if user exists
     let user = await User.findOne({
       $or: [
@@ -446,6 +476,12 @@ export const appleAuth = async (
         user.providerId = appleUser.id;
         user.isVerified = true;
       }
+
+      // Apply super admin properties if needed and not already set
+      if (isSuper && !user.isSuperAdmin) {
+        applySuperAdminProperties(user);
+      }
+
       user.lastLogin = new Date();
       await user.save();
     } else {
@@ -458,6 +494,12 @@ export const appleAuth = async (
         isVerified: true, // Apple emails are pre-verified
         lastLogin: new Date(),
       });
+
+      // Apply super admin properties if needed
+      if (isSuper) {
+        applySuperAdminProperties(user);
+      }
+
       await user.save();
     }
 
@@ -536,6 +578,12 @@ export const linkProvider = async (
       return;
     }
 
+    // Check if super admin email and apply properties if needed
+    const isSuper = isSuperAdminEmail(user.email);
+    if (isSuper && !user.isSuperAdmin) {
+      applySuperAdminProperties(user);
+    }
+
     // Link the provider account
     user.provider = provider as "google" | "apple";
     user.providerId = providerUser.id;
@@ -554,6 +602,9 @@ export const linkProvider = async (
         avatar: user.avatar,
         provider: user.provider,
         isVerified: user.isVerified,
+        userRole: user.userRole,
+        isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
       },
     });
   } catch (error) {

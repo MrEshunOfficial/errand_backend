@@ -1,5 +1,5 @@
 // utils/sendEmail.ts
-import nodemailer from "nodemailer";
+import { MailtrapClient } from "mailtrap";
 
 interface EmailOptions {
   to: string;
@@ -7,20 +7,25 @@ interface EmailOptions {
   html: string;
 }
 
-export const sendEmail = async (options: EmailOptions): Promise<void> => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: false,
-    auth: {
-      user: process.env.SMTP_EMAIL,
-      pass: process.env.SMTP_PASSWORD,
-    },
-  });
+const client = new MailtrapClient({
+  token: process.env.MAILTRAP_TOKEN!,
+});
 
-  await transporter.sendMail({
-    from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
-    to: options.to,
+export const sendEmail = async (options: EmailOptions): Promise<void> => {
+  const sender = {
+    email: process.env.FROM_EMAIL!,
+    name: process.env.FROM_NAME || "Your App Name",
+  };
+
+  const recipients = [
+    {
+      email: options.to,
+    },
+  ];
+
+  await client.send({
+    from: sender,
+    to: recipients,
     subject: options.subject,
     html: options.html,
   });

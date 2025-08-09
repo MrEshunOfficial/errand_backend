@@ -10,7 +10,7 @@ export const getVerificationEmailTemplate = (
       <h2 style="color: #333;">Welcome to Our Platform, ${name}!</h2>
       <p>Thank you for signing up. Please verify your email address by clicking the button below:</p>
       <div style="text-align: center; margin: 30px 0;">
-        <a href="${verificationUrl}" 
+        <a href="${verificationUrl}"
            style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
           Verify Email Address
         </a>
@@ -34,7 +34,7 @@ export const getResetPasswordEmailTemplate = (
       <p>Hi ${name},</p>
       <p>You requested a password reset. Click the button below to reset your password:</p>
       <div style="text-align: center; margin: 30px 0;">
-        <a href="${resetUrl}" 
+        <a href="${resetUrl}"
            style="background-color: #dc3545; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
           Reset Password
         </a>
