@@ -242,6 +242,9 @@ export const verifyEmail = async (
         isVerified: user.isVerified,
       },
     });
+
+    
+
   } catch (error) {
     console.error("Email verification error:", error);
     res.status(500).json({ message: "Internal server error" });
