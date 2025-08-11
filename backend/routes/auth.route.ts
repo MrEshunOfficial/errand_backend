@@ -38,7 +38,6 @@ router.post("/google", googleAuth);
 router.post("/apple", appleAuth);
 
 // Protected routes
-// Make sure this is how you're using it
 router.get("/profile", authenticateToken, getProfile);
 router.post("/link-provider", authenticateToken, linkProvider);
 
