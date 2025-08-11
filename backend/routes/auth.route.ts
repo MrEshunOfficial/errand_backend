@@ -11,7 +11,9 @@ import {
   googleAuth,
   appleAuth,
   linkProvider,
+  resendVerification,
 } from "../controllers/auth.controllers";
+
 import {
   authenticateToken,
   requireVerification,
@@ -28,12 +30,15 @@ router.post("/logout", logout);
 router.post("/verify-email", verifyEmail);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+// In your auth routes file
+router.post("/resend-verification", resendVerification);
 
 // OAuth routes
 router.post("/google", googleAuth);
 router.post("/apple", appleAuth);
 
 // Protected routes
+// Make sure this is how you're using it
 router.get("/profile", authenticateToken, getProfile);
 router.post("/link-provider", authenticateToken, linkProvider);
 

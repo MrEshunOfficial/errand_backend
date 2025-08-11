@@ -73,12 +73,18 @@ export interface AuthResponse {
   message: string;
   user?: Partial<IUser>;
   token?: string;
+  requiresVerification?: boolean;
+  email?: string; // ← Optional: to help frontend know which email needs verification
 }
 
 export interface GoogleAuthRequestBody {
-  token: string; // Google OAuth token
+  idToken: string; // Google ID token from frontend
 }
 
+// resend verification request type:
+export interface ResendVerificationRequestBody {
+  email: string;
+}
 export interface OAuthUserData {
   email: string;
   name: string;
