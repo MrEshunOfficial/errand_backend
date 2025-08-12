@@ -2,6 +2,7 @@
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
+import { IUser } from "../types/user.types";
 
 // Google OAuth verification
 export const verifyGoogleToken = async (idToken: string) => {
@@ -144,4 +145,47 @@ export const verifyAppleTokenDev = async (idToken: string) => {
 // Generate username from email for OAuth users
 export const generateUsernameFromEmail = (email: string): string => {
   return email.split("@")[0] + Math.random().toString(36).substring(2, 6);
+};
+
+// utils/auth.utils.ts
+
+/**
+ * Check if email is super admin
+ */
+export const isSuperAdminEmail = (email: string): boolean => {
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+  if (!superAdminEmail) {
+    console.warn("SUPER_ADMIN_EMAIL environment variable is not set");
+    return false;
+  }
+  return email.toLowerCase() === superAdminEmail.toLowerCase();
+};
+
+/**
+ * Apply super admin properties to user document
+ */
+export const applySuperAdminProperties = (userDoc: IUser) => {
+  userDoc.userRole = "super_admin";
+  userDoc.systemAdminName = process.env.SUPER_ADMIN_NAME;
+  userDoc.isSuperAdmin = true;
+  userDoc.isAdmin = true;
+  userDoc.isVerified = true;
+  return userDoc;
+};
+
+/**
+ * Create a standardized user response object
+ */
+export const createUserResponse = (user: IUser) => {
+  return { ...user };
+};
+
+/**
+ * Validate password strength
+ */
+export const validatePassword = (password: string): string | null => {
+  if (password.length < 6) {
+    return "Password must be at least 6 characters long";
+  }
+  return null;
 };

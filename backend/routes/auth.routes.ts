@@ -1,18 +1,5 @@
-// routes/auth.routes.ts;
+// routes/auth.routes.ts
 import express from "express";
-import {
-  signup,
-  login,
-  logout,
-  verifyEmail,
-  forgotPassword,
-  resetPassword,
-  getProfile,
-  googleAuth,
-  appleAuth,
-  linkProvider,
-  resendVerification,
-} from "../controllers/auth.controllers";
 
 import {
   authenticateToken,
@@ -20,6 +7,20 @@ import {
   requireAdmin,
   requireSuperAdmin,
 } from "../middleware/auth.middleware";
+import {
+  signup,
+  login,
+  logout,
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
+  resendVerification,
+} from "../controllers/auth.controller";
+import {
+  googleAuth,
+  appleAuth,
+  linkProvider,
+} from "../controllers/oauth.controller";
 
 const router = express.Router();
 
@@ -30,7 +31,6 @@ router.post("/logout", logout);
 router.post("/verify-email", verifyEmail);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
-// In your auth routes file
 router.post("/resend-verification", resendVerification);
 
 // OAuth routes
@@ -38,7 +38,6 @@ router.post("/google", googleAuth);
 router.post("/apple", appleAuth);
 
 // Protected routes
-router.get("/profile", authenticateToken, getProfile);
 router.post("/link-provider", authenticateToken, linkProvider);
 
 // Routes requiring verification

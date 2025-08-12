@@ -1,16 +1,18 @@
+// index.ts
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import cookieParser from "cookie-parser"; // ← ADD THIS IMPORT
-import authRoutes from "./routes/auth.route.js";
-import { connectDB } from "./database/connectDB.js";
+import cookieParser from "cookie-parser";
+import profileRoutes from "./routes/profile.routes.js"; // Use .js extension
+import { connectDB } from "./database/connectDB";
+import authRoutes from "./routes/auth.routes.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ Add CORS configuration FIRST (before other middleware)
+// CORS configuration FIRST
 app.use(
   cors({
     origin:
@@ -27,11 +29,25 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ ADD COOKIE PARSER MIDDLEWARE
+// Cookie parser middleware
 app.use(cookieParser());
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+
+// Error handling middleware (optional but recommended)
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error(err.stack);
+    res.status(500).json({ message: "Something went wrong!" });
+  }
+);
 
 app.listen(PORT, () => {
   connectDB();

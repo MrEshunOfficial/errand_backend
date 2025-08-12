@@ -5,19 +5,17 @@ import crypto from "crypto";
 import { User } from "../models/user.model";
 import { generateTokenAndSetCookie } from "../utils/generateTokenAndSetCookie";
 import { sendEmail } from "../utils/sendEmail";
+
 import {
   SignupRequestBody,
   LoginRequestBody,
   ResetPasswordRequestBody,
   VerifyEmailRequestBody,
   UpdatePasswordRequestBody,
-  GoogleAuthRequestBody,
-  AppleAuthRequestBody,
+  ResendVerificationRequestBody,
   AuthResponse,
-  UpdateProfileRequestBody,
 } from "../types/user.types";
-// 🔧 FIX: Correct import path (oauth not oath)
-import { verifyGoogleToken, verifyAppleToken } from "../utils/oath.utils.ts";
+
 import {
   getVerificationEmailTemplate,
   getResetPasswordEmailTemplate,
@@ -83,9 +81,10 @@ export const signup = async (
       name: name.trim(),
       email: email.toLowerCase(),
       password: hashedPassword,
-      provider: "credentials", // 🔧 ENHANCEMENT: Explicitly set provider
+      provider: "credentials",
       verificationToken,
       verificationExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      lastLogin: new Date(),
     });
 
     // Apply super admin properties if needed
@@ -128,9 +127,10 @@ export const signup = async (
         isVerified: newUser.isVerified,
         isAdmin: newUser.isAdmin,
         isSuperAdmin: newUser.isSuperAdmin,
-        provider: newUser.provider, // 🔧 ENHANCEMENT: Include provider in response
+        provider: newUser.provider,
+        lastLogin: newUser.lastLogin,
         createdAt: newUser.createdAt,
-      },
+      } as any,
       token,
     });
   } catch (error) {
@@ -161,7 +161,7 @@ export const login = async (
       return;
     }
 
-    // 🔧 ENHANCEMENT: Better provider validation
+    // Check if user uses credentials provider
     if (user.provider !== "credentials") {
       res.status(400).json({
         message:
@@ -181,7 +181,7 @@ export const login = async (
       return;
     }
 
-    // ✅ CORRECT: Check email verification for credential-based users only
+    // Check email verification for credential-based users only
     if (!user.isVerified && !user.isSuperAdmin) {
       res.status(401).json({
         message: "Please verify your email before logging in",
@@ -211,7 +211,7 @@ export const login = async (
         provider: user.provider,
         avatar: user.avatar,
         lastLogin: user.lastLogin,
-      },
+      } as any,
       token,
     });
   } catch (error) {
@@ -220,211 +220,6 @@ export const login = async (
   }
 };
 
-export const googleAuth = async (
-  req: Request<{}, AuthResponse, GoogleAuthRequestBody>,
-  res: Response<AuthResponse>
-): Promise<void> => {
-  try {
-    const { idToken } = req.body;
-
-    if (!idToken) {
-      res.status(400).json({ message: "Google ID token is required" });
-      return;
-    }
-
-    // Verify Google token
-    const googleUser = await verifyGoogleToken(idToken);
-
-    // Check if super admin email
-    const isSuper = isSuperAdminEmail(googleUser.email);
-
-    // Check if user exists
-    let user = await User.findOne({
-      $or: [
-        { email: googleUser.email },
-        { provider: "google", providerId: googleUser.id },
-      ],
-    });
-
-    if (user) {
-      // User exists, update last login and provider info if needed
-      if (user.provider === "credentials") {
-        // 🔧 ENHANCEMENT: Better logging for account linking
-        console.log(
-          `Linking Google account to existing credentials account: ${user.email}`
-        );
-
-        // Link Google account to existing email-based account
-        user.provider = "google";
-        user.providerId = googleUser.id;
-        user.isVerified = true; // ✅ OAuth users are verified by default
-        if (googleUser.avatar && !user.avatar) {
-          user.avatar = googleUser.avatar;
-        }
-      }
-
-      // Apply super admin properties if needed and not already set
-      if (isSuper && !user.isSuperAdmin) {
-        applySuperAdminProperties(user);
-      }
-
-      user.lastLogin = new Date();
-      await user.save();
-    } else {
-      // Create new user
-      console.log(`Creating new Google user: ${googleUser.email}`);
-
-      user = new User({
-        name: googleUser.name,
-        email: googleUser.email,
-        provider: "google",
-        providerId: googleUser.id,
-        avatar: googleUser.avatar,
-        isVerified: true, // ✅ CORRECT: OAuth users are verified by default
-        lastLogin: new Date(),
-      });
-
-      // Apply super admin properties if needed
-      if (isSuper) {
-        applySuperAdminProperties(user);
-      }
-
-      await user.save();
-    }
-
-    // Generate JWT token
-    const token = generateTokenAndSetCookie(res, user._id.toString());
-
-    res.status(200).json({
-      message: "Google authentication successful",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        provider: user.provider,
-        lastLogin: user.lastLogin,
-      },
-      token,
-    });
-  } catch (error) {
-    console.error("Google auth error:", error);
-    res.status(400).json({
-      message: "Google authentication failed",
-      // 🔧 ENHANCEMENT: Better error details for debugging
-      // details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-};
-
-export const appleAuth = async (
-  req: Request<{}, AuthResponse, AppleAuthRequestBody>,
-  res: Response<AuthResponse>
-): Promise<void> => {
-  try {
-    const { idToken, user: appleUserData } = req.body;
-
-    if (!idToken) {
-      res.status(400).json({ message: "Apple ID token is required" });
-      return;
-    }
-
-    // Verify Apple token
-    const appleUser = await verifyAppleToken(idToken);
-
-    // Apple sometimes provides user data separately
-    let userName = appleUser.name;
-    if (appleUserData?.name) {
-      userName = `${appleUserData.name.firstName} ${appleUserData.name.lastName}`;
-    }
-
-    // Check if super admin email
-    const isSuper = isSuperAdminEmail(appleUser.email);
-
-    // Check if user exists
-    let user = await User.findOne({
-      $or: [
-        { email: appleUser.email },
-        { provider: "apple", providerId: appleUser.id },
-      ],
-    });
-
-    if (user) {
-      // User exists, update last login and provider info if needed
-      if (user.provider === "credentials") {
-        // 🔧 ENHANCEMENT: Better logging for account linking
-        console.log(
-          `Linking Apple account to existing credentials account: ${user.email}`
-        );
-
-        // Link Apple account to existing email-based account
-        user.provider = "apple";
-        user.providerId = appleUser.id;
-        user.isVerified = true; // ✅ OAuth users are verified by default
-      }
-
-      // Apply super admin properties if needed and not already set
-      if (isSuper && !user.isSuperAdmin) {
-        applySuperAdminProperties(user);
-      }
-
-      user.lastLogin = new Date();
-      await user.save();
-    } else {
-      // Create new user
-      console.log(`Creating new Apple user: ${appleUser.email}`);
-
-      user = new User({
-        name: userName,
-        email: appleUser.email,
-        provider: "apple",
-        providerId: appleUser.id,
-        isVerified: true, // ✅ CORRECT: OAuth users are verified by default
-        lastLogin: new Date(),
-      });
-
-      // Apply super admin properties if needed
-      if (isSuper) {
-        applySuperAdminProperties(user);
-      }
-
-      await user.save();
-    }
-
-    // Generate JWT token
-    const token = generateTokenAndSetCookie(res, user._id.toString());
-
-    res.status(200).json({
-      message: "Apple authentication successful",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        provider: user.provider,
-        lastLogin: user.lastLogin,
-      },
-      token,
-    });
-  } catch (error) {
-    console.error("Apple auth error:", error);
-    res.status(400).json({
-      message: "Apple authentication failed",
-      // 🔧 ENHANCEMENT: Better error details for debugging
-      // details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-};
-
-// Rest of the functions remain the same...
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
     res.clearCookie("token");
@@ -473,7 +268,7 @@ export const verifyEmail = async (
         name: user.name,
         email: user.email,
         isVerified: user.isVerified,
-      },
+      } as any,
     });
   } catch (error) {
     console.error("Email verification error:", error);
@@ -482,7 +277,7 @@ export const verifyEmail = async (
 };
 
 export const resendVerification = async (
-  req: Request<{}, AuthResponse, { email: string }>,
+  req: Request<{}, AuthResponse, ResendVerificationRequestBody>,
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
@@ -510,7 +305,7 @@ export const resendVerification = async (
       return;
     }
 
-    // ✅ CORRECT: Check if user is credential-based (not OAuth)
+    // Check if user is credential-based (not OAuth)
     if (user.provider !== "credentials") {
       res
         .status(400)
@@ -566,7 +361,7 @@ export const forgotPassword = async (
       return;
     }
 
-    // 🔧 ENHANCEMENT: Check if user uses OAuth (no password to reset)
+    // Check if user uses OAuth (no password to reset)
     if (user.provider !== "credentials") {
       res.status(400).json({
         message:
@@ -649,194 +444,6 @@ export const resetPassword = async (
     });
   } catch (error) {
     console.error("Reset password error:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-export const linkProvider = async (
-  req: Request & { userId?: string },
-  res: Response
-): Promise<void> => {
-  try {
-    const { provider, idToken } = req.body;
-    const userId = req.userId;
-
-    if (!userId) {
-      res.status(401).json({ message: "Authentication required" });
-      return;
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      res.status(404).json({ message: "User not found" });
-      return;
-    }
-
-    let providerUser: {
-      id: any;
-      avatar: any;
-      email?: any;
-      name?: any;
-      emailVerified?: boolean | undefined;
-    };
-
-    if (provider === "google") {
-      providerUser = await verifyGoogleToken(idToken);
-    } else if (provider === "apple") {
-      providerUser = await verifyAppleToken(idToken);
-    } else {
-      res.status(400).json({ message: "Invalid provider" });
-      return;
-    }
-
-    // Check if provider account is already linked to another user
-    const existingUser = await User.findOne({
-      provider: provider,
-      providerId: providerUser.id,
-      _id: { $ne: userId },
-    });
-
-    if (existingUser) {
-      res
-        .status(400)
-        .json({ message: "This account is already linked to another user" });
-      return;
-    }
-
-    // Check if super admin email and apply properties if needed
-    const isSuper = isSuperAdminEmail(user.email);
-    if (isSuper && !user.isSuperAdmin) {
-      applySuperAdminProperties(user);
-    }
-
-    // Link the provider account
-    user.provider = provider as "google" | "apple";
-    user.providerId = providerUser.id;
-    if (providerUser.avatar && !user.avatar) {
-      user.avatar = providerUser.avatar;
-    }
-    user.isVerified = true; // ✅ CORRECT: Linking OAuth makes account verified
-    await user.save();
-
-    res.status(200).json({
-      message: `${provider} account linked successfully`,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        provider: user.provider,
-        isVerified: user.isVerified,
-        userRole: user.userRole,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-      },
-    });
-  } catch (error) {
-    console.error("Link provider error:", error);
-    res.status(500).json({ message: "Failed to link provider account" });
-  }
-};
-
-export const getProfile = async (
-  req: Request & { userId?: string },
-  res: Response
-): Promise<void> => {
-  try {
-    console.log("getProfile called with userId:", req.userId);
-
-    if (!req.userId) {
-      res.status(401).json({ message: "User ID not found in request" });
-      return;
-    }
-
-    const user = await User.findById(req.userId);
-    console.log("User found in getProfile:", user ? "Yes" : "No");
-
-    if (!user) {
-      res.status(404).json({ message: "User not found" });
-      return;
-    }
-
-    res.status(200).json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        provider: user.provider,
-        lastLogin: user.lastLogin,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-    });
-  } catch (error) {
-    console.error("Get profile error:", error);
-    res.status(500).json({
-      message: "Internal server error",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-};
-
-export const updateProfile = async (
-  req: Request<{}, AuthResponse, UpdateProfileRequestBody>,
-  res: Response<AuthResponse>
-): Promise<void> => {
-  try {
-    const updates = req.body;
-    const userId = (req as any).userId;
-
-    // Validate allowed updates
-    const allowedUpdates = [
-      "name",
-      "phone",
-      "avatar",
-      "address",
-      "preferences",
-      "bio",
-    ];
-    const requestedUpdates = Object.keys(updates);
-    const isValidUpdate = requestedUpdates.every((update) =>
-      allowedUpdates.includes(update)
-    );
-
-    if (!isValidUpdate) {
-      res.status(400).json({ message: "Invalid updates" });
-      return;
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $set: updates },
-      { new: true, runValidators: true }
-    );
-
-    if (!user) {
-      res.status(404).json({ message: "User not found" });
-      return;
-    }
-
-    res.status(200).json({
-      message: "Profile updated successfully",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        preferences: user.preferences,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-      },
-    });
-  } catch (error) {
-    console.error("Update profile error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
