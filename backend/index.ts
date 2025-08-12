@@ -3,7 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import profileRoutes from "./routes/profile.routes.js"; // Use .js extension
+import profileRoutes from "./routes/profile.routes.js";
 import { connectDB } from "./database/connectDB";
 import authRoutes from "./routes/auth.routes.js";
 

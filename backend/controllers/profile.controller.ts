@@ -43,7 +43,14 @@ export const getProfile = async (
     }
 
     const userWithProfile = {
-      ...createUserResponse(user),
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: user.userRole,
+      provider: user.provider,
+      lastLogin: user.lastLogin,
+      createdAt: user.createdAt,
       profile: profile,
     };
 
@@ -157,7 +164,11 @@ export const updateProfile = async (
     }
 
     const userWithProfile = {
-      ...createUserResponse(user),
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: user.userRole,
       profile: profile,
     };
 
@@ -224,7 +235,11 @@ export const updateProfileRole = async (
     }
 
     const userWithProfile = {
-      ...createUserResponse(user),
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: user.userRole,
       profile: profile,
     };
 

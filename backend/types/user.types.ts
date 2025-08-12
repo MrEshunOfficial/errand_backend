@@ -64,7 +64,7 @@ export interface IUserPreferences {
 
 export interface ContactDetails {
   primaryContact: string;
-  secondaryContact: string;
+  secondaryContact?: string;
 }
 
 export interface IdDetails {
