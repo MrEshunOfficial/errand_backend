@@ -1,5 +1,6 @@
 // types/user.types.ts
 import { Types } from "mongoose";
+import { Request } from "express"; // Add this import
 
 export interface BaseEntity {
   _id: Types.ObjectId;
@@ -8,14 +9,13 @@ export interface BaseEntity {
 }
 
 export interface UserLocation {
-  ghanaPostGPS: string; // Ghana Post GPS digital address (e.g., "GZ-0123-4567")
+  ghanaPostGPS: string;
   nearbyLandmark?: string;
   region?: string;
   city?: string;
   district?: string;
   locality?: string;
   other?: string;
-  // add latitude and longitude
   gpsCoordinates?: {
     latitude: number;
     longitude: number;
@@ -34,6 +34,7 @@ export enum idType {
   PASSPORT = "passport",
   VOTERS_ID = "voters_id",
   DRIVERS_LICENSE = "drivers_license",
+  NHIS = "nhis",
   OTHER = "other",
 }
 
@@ -87,7 +88,6 @@ export interface IUserProfile extends BaseEntity {
   lastModified?: Date; // Cache invalidation
   contactDetails?: ContactDetails;
   idDetails?: IdDetails;
-  isActive: boolean;
   completeness?: number; // Virtual field calculated by Mongoose
 }
 
@@ -181,6 +181,8 @@ export interface CreateProfileRequestBody
 export interface AuthResponse {
   message: string;
   user?: Partial<IUser>;
+  profile?: Partial<IUserProfile> | null;
+  hasProfile?: boolean;
   token?: string;
   requiresVerification?: boolean;
   email?: string;
@@ -203,4 +205,5 @@ export interface LinkProviderRequestBody {
 // Extended request interface for authenticated routes
 export interface AuthenticatedRequest extends Request {
   userId?: string;
+  profile?: IUserProfile | null; // Add this for profile middleware
 }

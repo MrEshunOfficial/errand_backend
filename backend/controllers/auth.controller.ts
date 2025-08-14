@@ -14,6 +14,7 @@ import {
   UpdatePasswordRequestBody,
   ResendVerificationRequestBody,
   AuthResponse,
+  IUser,
 } from "../types/user.types";
 
 import {
@@ -211,7 +212,7 @@ export const login = async (
         provider: user.provider,
         avatar: user.avatar,
         lastLogin: user.lastLogin,
-      } as any,
+      } as unknown as IUser,
       token,
     });
   } catch (error) {

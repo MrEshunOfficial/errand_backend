@@ -34,7 +34,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   try {
     const recipients = [
       {
-        email: "christophereshun91@gmail.com",
+        email: "mrkwesieshun@gmail.com",
       },
     ];
 

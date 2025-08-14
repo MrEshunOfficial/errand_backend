@@ -1,17 +1,35 @@
 // controllers/profile.controller.ts
 import { Request, Response } from "express";
-import { User } from "../models/user.model.js"; // Added .js extension
-import { Profile } from "../models/profile.model.js"; // Added .js extension
+import { User } from "../models/user.model.js";
+import { Profile } from "../models/profile.model.js";
 import {
   AuthResponse,
   UpdateProfileRequestBody,
   IUserProfile,
+  IUser,
   UserRole,
-} from "../types/user.types.js"; // Added .js extension
-import { createUserResponse } from "../utils/oath.utils.js";
+  AuthenticatedRequest,
+} from "../types/user.types.js";
+
+// Helper function to create clean user response with proper typing
+const createCleanUserResponse = (user: IUser): Partial<IUser> => ({
+  _id: user._id,
+  email: user.email,
+  name: user.name,
+  systemAdminName: user.systemAdminName,
+  avatar: user.avatar,
+  userRole: user.userRole,
+  provider: user.provider,
+  lastLogin: user.lastLogin,
+  createdAt: user.createdAt,
+  isVerified: user.isVerified,
+  isAdmin: user.isAdmin,
+  isSuperAdmin: user.isSuperAdmin,
+  updatedAt: user.updatedAt,
+});
 
 export const getProfile = async (
-  req: Request & { userId?: string },
+  req: AuthenticatedRequest, // Use proper authenticated request type
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
@@ -22,7 +40,7 @@ export const getProfile = async (
       return;
     }
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.userId) as IUser | null;
     console.log("User found in getProfile:", user ? "Yes" : "No");
 
     if (!user) {
@@ -31,7 +49,7 @@ export const getProfile = async (
     }
 
     // Get or create user profile
-    let profile = await Profile.findOne({ userId: req.userId });
+    let profile = await Profile.findOne({ userId: req.userId }) as IUserProfile | null;
 
     if (!profile) {
       // Create default profile if it doesn't exist
@@ -39,41 +57,30 @@ export const getProfile = async (
         userId: req.userId,
         role: UserRole.CUSTOMER,
         isActive: true,
-      });
+      }) as IUserProfile;
     }
-
-    const userWithProfile = {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      role: user.userRole,
-      provider: user.provider,
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt,
-      profile: profile,
-    };
 
     res.status(200).json({
       message: "Profile retrieved successfully",
-      user: userWithProfile,
+      user: createCleanUserResponse(user),
+      profile: profile,
     });
   } catch (error) {
     console.error("Get profile error:", error);
     res.status(500).json({
       message: "Internal server error",
       error: error instanceof Error ? error.message : "Unknown error",
-    } as any);
+    });
   }
 };
 
 export const updateProfile = async (
-  req: Request<{}, AuthResponse, UpdateProfileRequestBody>,
+  req: Request<{}, AuthResponse, UpdateProfileRequestBody> & AuthenticatedRequest,
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
     const updates = req.body;
-    const userId = (req as any).userId;
+    const userId = req.userId;
 
     if (!userId) {
       res.status(401).json({ message: "User ID not found in request" });
@@ -81,8 +88,8 @@ export const updateProfile = async (
     }
 
     // Validate allowed updates
-    const allowedUpdates = ["name", "avatar", "profile"];
-    const allowedProfileUpdates = [
+    const allowedUpdates: (keyof UpdateProfileRequestBody)[] = ["name", "avatar", "profile"];
+    const allowedProfileUpdates: (keyof Partial<IUserProfile>)[] = [
       "role",
       "bio",
       "location",
@@ -92,7 +99,7 @@ export const updateProfile = async (
       "idDetails",
     ];
 
-    const requestedUpdates = Object.keys(updates);
+    const requestedUpdates = Object.keys(updates) as (keyof UpdateProfileRequestBody)[];
     const isValidUpdate = requestedUpdates.every((update) =>
       allowedUpdates.includes(update)
     );
@@ -104,7 +111,7 @@ export const updateProfile = async (
 
     // If profile updates are provided, validate them
     if (updates.profile) {
-      const profileUpdates = Object.keys(updates.profile);
+      const profileUpdates = Object.keys(updates.profile) as (keyof Partial<IUserProfile>)[];
       const isValidProfileUpdate = profileUpdates.every((update) =>
         allowedProfileUpdates.includes(update)
       );
@@ -116,24 +123,24 @@ export const updateProfile = async (
     }
 
     // Update user basic info (name, avatar)
-    const userUpdateObject: any = {};
+    const userUpdateObject: Partial<IUser> = {};
     if (updates.name) userUpdateObject.name = updates.name;
     if (updates.avatar) userUpdateObject.avatar = updates.avatar;
 
-    let user;
+    let user: IUser | null;
     if (Object.keys(userUpdateObject).length > 0) {
       user = await User.findByIdAndUpdate(
         userId,
         { $set: userUpdateObject },
         { new: true, runValidators: true }
-      );
+      ) as IUser | null;
 
       if (!user) {
         res.status(404).json({ message: "User not found" });
         return;
       }
     } else {
-      user = await User.findById(userId);
+      user = await User.findById(userId) as IUser | null;
       if (!user) {
         res.status(404).json({ message: "User not found" });
         return;
@@ -141,7 +148,7 @@ export const updateProfile = async (
     }
 
     // Update profile if profile data is provided
-    let profile;
+    let profile: IUserProfile | null;
     if (updates.profile) {
       // Find existing profile or create new one
       profile = await Profile.findOneAndUpdate(
@@ -157,24 +164,16 @@ export const updateProfile = async (
           runValidators: true,
           upsert: true, // Create if doesn't exist
         }
-      );
+      ) as IUserProfile | null;
     } else {
       // Just get the existing profile
-      profile = await Profile.findOne({ userId });
+      profile = await Profile.findOne({ userId }) as IUserProfile | null;
     }
-
-    const userWithProfile = {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      role: user.userRole,
-      profile: profile,
-    };
 
     res.status(200).json({
       message: "Profile updated successfully",
-      user: userWithProfile,
+      user: createCleanUserResponse(user),
+      profile: profile,
     });
   } catch (error) {
     console.error("Update profile error:", error);
@@ -191,12 +190,12 @@ export const updateProfile = async (
 
 // New controller for updating profile role specifically
 export const updateProfileRole = async (
-  req: Request<{}, AuthResponse, { role: UserRole }>,
+  req: Request<{}, AuthResponse, { role: UserRole }> & AuthenticatedRequest,
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
     const { role } = req.body;
-    const userId = (req as any).userId;
+    const userId = req.userId;
 
     if (!userId) {
       res.status(401).json({ message: "User ID not found in request" });
@@ -205,9 +204,7 @@ export const updateProfileRole = async (
 
     if (!role || !Object.values(UserRole).includes(role)) {
       res.status(400).json({
-        message: `Invalid role. Must be one of: ${Object.values(UserRole).join(
-          ", "
-        )}`,
+        message: `Invalid role. Must be one of: ${Object.values(UserRole).join(", ")}`,
       });
       return;
     }
@@ -226,26 +223,18 @@ export const updateProfileRole = async (
         runValidators: true,
         upsert: true,
       }
-    );
+    ) as IUserProfile | null;
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId) as IUser | null;
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
     }
 
-    const userWithProfile = {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      role: user.userRole,
-      profile: profile,
-    };
-
     res.status(200).json({
       message: `Profile role updated to ${role} successfully`,
-      user: userWithProfile,
+      user: createCleanUserResponse(user),
+      profile: profile,
     });
   } catch (error) {
     console.error("Update profile role error:", error);
@@ -255,12 +244,12 @@ export const updateProfileRole = async (
 
 // New controller for updating location
 export const updateProfileLocation = async (
-  req: Request<{}, AuthResponse, { location: IUserProfile["location"] }>,
+  req: Request<{}, AuthResponse, { location: IUserProfile["location"] }> & AuthenticatedRequest,
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
     const { location } = req.body;
-    const userId = (req as any).userId;
+    const userId = req.userId;
 
     if (!userId) {
       res.status(401).json({ message: "User ID not found in request" });
@@ -287,22 +276,18 @@ export const updateProfileLocation = async (
         runValidators: true,
         upsert: true,
       }
-    );
+    ) as IUserProfile | null;
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId) as IUser | null;
     if (!user) {
       res.status(404).json({ message: "User not found" });
       return;
     }
 
-    const userWithProfile = {
-      ...createUserResponse(user),
-      profile: profile,
-    };
-
     res.status(200).json({
       message: "Location updated successfully",
-      user: userWithProfile,
+      user: createCleanUserResponse(user),
+      profile: profile,
     });
   } catch (error) {
     console.error("Update profile location error:", error);
@@ -317,20 +302,32 @@ export const updateProfileLocation = async (
   }
 };
 
+// Response interface for completeness endpoint
+interface ProfileCompletenessResponse {
+  message: string;
+  completeness: number;
+  data?: {
+    completeness: number;
+  };
+}
+
 // New controller for getting profile completeness
 export const getProfileCompleteness = async (
-  req: Request & { userId?: string },
-  res: Response
+  req: AuthenticatedRequest,
+  res: Response<ProfileCompletenessResponse>
 ): Promise<void> => {
   try {
     const userId = req.userId;
 
     if (!userId) {
-      res.status(401).json({ message: "User ID not found in request" });
+      res.status(401).json({ 
+        message: "User ID not found in request",
+        completeness: 0 
+      });
       return;
     }
 
-    const profile = await Profile.findOne({ userId });
+    const profile = await Profile.findOne({ userId }) as IUserProfile | null;
 
     if (!profile) {
       res.status(200).json({
@@ -341,12 +338,61 @@ export const getProfileCompleteness = async (
     }
 
     res.status(200).json({
-      completeness: profile.completeness,
       message: "Profile completeness retrieved successfully",
+      completeness: profile.completeness || 0,
+      data: {
+        completeness: profile.completeness || 0
+      }
     });
   } catch (error) {
     console.error("Get profile completeness error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ 
+      message: "Internal server error",
+      completeness: 0 
+    });
+  }
+};
+
+// Extended AuthResponse for context endpoint
+interface ProfileContextResponse extends AuthResponse {
+  hasProfile?: boolean;
+  profileRole?: UserRole | null;
+  completeness?: number;
+}
+
+// Get profile with full context (for dashboard initialization)
+export const getProfileWithContext = async (
+  req: AuthenticatedRequest,
+  res: Response<ProfileContextResponse>
+): Promise<void> => {
+  try {
+    if (!req.userId) {
+      res.status(401).json({ message: "User ID not found in request" });
+      return;
+    }
+
+    const user = await User.findById(req.userId) as IUser | null;
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    const profile = await Profile.findOne({ userId: req.userId }) as IUserProfile | null;
+
+    res.status(200).json({
+      message: "Profile context retrieved successfully",
+      user: createCleanUserResponse(user),
+      profile: profile,
+      hasProfile: !!profile,
+      profileRole: profile?.role || null,
+      completeness: profile?.completeness || 0,
+    });
+  } catch (error) {
+    console.error("Get profile with context error:", error);
+    res.status(500).json({
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 };
 
@@ -358,10 +404,15 @@ export const hasProfileRole = (
   return profile?.role === role;
 };
 
+// Middleware interfaces
+interface AuthenticatedRequestWithProfile extends AuthenticatedRequest {
+  profile?: IUserProfile | null;
+}
+
 // Middleware to check profile role
 export const requireProfileRole = (role: UserRole) => {
   return async (
-    req: Request & { userId?: string },
+    req: AuthenticatedRequestWithProfile,
     res: Response,
     next: any
   ) => {
@@ -372,7 +423,7 @@ export const requireProfileRole = (role: UserRole) => {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const profile = await Profile.findOne({ userId });
+      const profile = await Profile.findOne({ userId }) as IUserProfile | null;
 
       if (!hasProfileRole(profile, role)) {
         return res.status(403).json({
@@ -381,7 +432,7 @@ export const requireProfileRole = (role: UserRole) => {
       }
 
       // Attach profile to request for use in subsequent middleware/controllers
-      (req as any).profile = profile;
+      req.profile = profile;
 
       next();
     } catch (error) {
@@ -393,7 +444,7 @@ export const requireProfileRole = (role: UserRole) => {
 
 // Middleware to attach profile to request
 export const attachProfile = async (
-  req: Request & { userId?: string },
+  req: AuthenticatedRequestWithProfile,
   res: Response,
   next: any
 ): Promise<void> => {
@@ -401,8 +452,8 @@ export const attachProfile = async (
     const userId = req.userId;
 
     if (userId) {
-      const profile = await Profile.findOne({ userId });
-      (req as any).profile = profile;
+      const profile = await Profile.findOne({ userId }) as IUserProfile | null;
+      req.profile = profile;
     }
 
     next();
@@ -410,5 +461,51 @@ export const attachProfile = async (
     console.error("Attach profile error:", error);
     // Don't fail the request, just continue without profile
     next();
+  }
+};
+
+// Extended response interface for batch operations
+interface BatchProfileResponse extends AuthResponse {
+  hasProfile?: boolean;
+  profileRole?: UserRole | null;
+  completeness?: number;
+  isActive?: boolean;
+}
+
+// Batch profile operations for better performance
+export const batchProfileOperations = async (
+  req: AuthenticatedRequest,
+  res: Response<BatchProfileResponse>
+): Promise<void> => {
+  try {
+    const userId = req.userId;
+
+    if (!userId) {
+      res.status(401).json({ message: "User ID not found in request" });
+      return;
+    }
+
+    // Get user and profile in parallel for better performance
+    const [user, profile] = await Promise.all([
+      User.findById(userId) as Promise<IUser | null>,
+      Profile.findOne({ userId }) as Promise<IUserProfile | null>
+    ]);
+
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    res.status(200).json({
+      message: "Batch profile data retrieved successfully",
+      user: createCleanUserResponse(user),
+      profile: profile,
+      hasProfile: !!profile,
+      profileRole: profile?.role || null,
+      completeness: profile?.completeness || 0,
+    });
+  } catch (error) {
+    console.error("Batch profile operations error:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
