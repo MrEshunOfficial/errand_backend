@@ -37,8 +37,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
         email: "mrkwesieshun@gmail.com",
       },
     ];
-
-    const result = await client.send({
+    await client.send({
       from: sender,
       to: recipients,
       subject: options.subject,
@@ -46,14 +45,9 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
       text: options.text,
       category: options.category || "Application Email",
     });
-
-    console.log("Email sent successfully:", result);
   } catch (error) {
-    console.error("Failed to send email:", error);
-
     // More specific error handling
     if (error instanceof Error) {
-      console.error("Error message:", error.message);
       throw new Error(`Email sending failed: ${error.message}`);
     }
 

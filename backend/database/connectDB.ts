@@ -5,7 +5,6 @@ export const connectDB = async () => {
     if (!process.env.MONGO_URL) {
       throw new Error("MONGO_URL environment variable is not defined");
     }
-    console.log("mongo url: ", process.env.MONGO_URL);
     await mongoose.connect(process.env.MONGO_URL);
     console.log("MongoDB connected successfully");
   } catch (error) {

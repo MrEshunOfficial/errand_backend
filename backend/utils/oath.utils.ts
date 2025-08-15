@@ -155,7 +155,6 @@ export const generateUsernameFromEmail = (email: string): string => {
 export const isSuperAdminEmail = (email: string): boolean => {
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
   if (!superAdminEmail) {
-    console.warn("SUPER_ADMIN_EMAIL environment variable is not set");
     return false;
   }
   return email.toLowerCase() === superAdminEmail.toLowerCase();
@@ -165,7 +164,7 @@ export const isSuperAdminEmail = (email: string): boolean => {
  * Apply super admin properties to user document
  */
 export const applySuperAdminProperties = (userDoc: IUser) => {
-  userDoc.userRole = "super_admin";
+  userDoc.systemRole = "super_admin";
   userDoc.systemAdminName = process.env.SUPER_ADMIN_NAME;
   userDoc.isSuperAdmin = true;
   userDoc.isAdmin = true;

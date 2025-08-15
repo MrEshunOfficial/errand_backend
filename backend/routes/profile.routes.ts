@@ -1,5 +1,5 @@
 // routes/profile.routes.ts
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response } from "express";
 import {
   getProfile,
   updateProfile,
@@ -10,13 +10,13 @@ import {
   batchProfileOperations,
   requireProfileRole,
   attachProfile,
-} from "../controllers/profile.controller.js"; // Added .js extension
-import { authenticateToken } from "../middleware/auth.middleware.js"; // Added .js extension
-import { UserRole, AuthenticatedRequest } from "../types/user.types.js"; // Added .js extension
+} from "../controllers/profile.controller.js";
+import { authenticateToken } from "../middleware/auth.middleware.js";
+import { UserRole, AuthenticatedRequest } from "../types/user.types.js";
 
 const router = express.Router();
 
-// All profile routes require authentication - this applies the middleware to all routes below
+// All profile routes require authentication
 router.use(authenticateToken);
 
 // Basic profile routes
@@ -32,7 +32,7 @@ router.get("/batch-operations", batchProfileOperations as any);
 router.patch("/role", updateProfileRole as any);
 router.patch("/location", updateProfileLocation as any);
 
-// Role-based access routes
+// Role-based access routes (business logic roles only)
 router.get(
   "/client-dashboard",
   requireProfileRole(UserRole.CUSTOMER),
@@ -55,23 +55,18 @@ router.get(
   }
 );
 
-// Admin profile routes
+// Routes that need profile context but don't require specific roles
 router.get(
-  "/admin-profiles",
-  requireProfileRole(UserRole.ADMIN),
+  "/context-aware",
+  attachProfile,
   (req: AuthenticatedRequest, res: Response) => {
-    res.json({ message: "Admin access to all profiles" });
+    const profile = req.profile;
+    res.json({
+      message: "Route with profile context",
+      hasProfile: !!profile,
+      profileRole: profile?.role || null,
+    });
   }
 );
-
-// Routes that might need profile context but don't require specific roles
-router.get("/context-aware", attachProfile, (req: AuthenticatedRequest, res: Response) => {
-  const profile = req.profile;
-  res.json({
-    message: "Route with profile context",
-    hasProfile: !!profile,
-    profileRole: profile?.role || null,
-  });
-});
 
 export default router;

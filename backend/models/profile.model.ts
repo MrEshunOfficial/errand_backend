@@ -167,10 +167,6 @@ const profileSchema = new Schema<IUserProfile>(
         },
       },
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
   },
   {
     timestamps: true,

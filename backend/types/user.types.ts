@@ -25,8 +25,6 @@ export interface UserLocation {
 export enum UserRole {
   CUSTOMER = "customer",
   PROVIDER = "service_provider",
-  ADMIN = "admin",
-  SUPER_ADMIN = "super_admin",
 }
 
 export enum idType {
@@ -98,7 +96,7 @@ export interface IUser extends BaseEntity {
   password?: string;
   lastLogin: Date;
   isVerified: boolean;
-  userRole: "user" | "admin" | "super_admin";
+  systemRole: "user" | "admin" | "super_admin";
   provider: "credentials" | "google" | "apple";
   providerId?: string;
   avatar?: ProfilePicture | string; // URL or ProfilePicture object
@@ -110,7 +108,7 @@ export interface IUser extends BaseEntity {
   verificationExpires?: Date;
   resetPasswordExpires?: Date;
   refreshToken?: string;
-  profileId?: Types.ObjectId; // Reference to user profile
+  profileId?: Types.ObjectId;
 }
 
 // OAuth-related interfaces

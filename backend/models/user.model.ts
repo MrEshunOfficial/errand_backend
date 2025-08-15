@@ -49,7 +49,7 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: false,
     },
-    userRole: {
+    systemRole: {
       type: String,
       enum: {
         values: ["user", "admin", "super_admin"],
@@ -111,10 +111,10 @@ userSchema.index({ provider: 1, email: 1 });
 // Pre-save middleware to handle role consistency
 userSchema.pre("save", function (next) {
   // Handle role consistency
-  if (this.userRole === "admin") {
+  if (this.systemRole === "admin") {
     this.isAdmin = true;
     this.isSuperAdmin = false;
-  } else if (this.userRole === "super_admin") {
+  } else if (this.systemRole === "super_admin") {
     this.isAdmin = true;
     this.isSuperAdmin = true;
   } else {

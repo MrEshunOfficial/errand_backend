@@ -26,7 +26,6 @@ import {
 const isSuperAdminEmail = (email: string): boolean => {
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
   if (!superAdminEmail) {
-    console.warn("SUPER_ADMIN_EMAIL environment variable is not set");
     return false;
   }
   return email.toLowerCase() === superAdminEmail.toLowerCase();
@@ -104,7 +103,6 @@ export const signup = async (
           html: getVerificationEmailTemplate(name, verificationToken),
         });
       } catch (emailError) {
-        console.error("Failed to send verification email:", emailError);
         // Continue without failing the registration
       }
     } else {
@@ -124,7 +122,7 @@ export const signup = async (
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
-        userRole: newUser.userRole,
+        systemRole: newUser.systemRole,
         isVerified: newUser.isVerified,
         isAdmin: newUser.isAdmin,
         isSuperAdmin: newUser.isSuperAdmin,
@@ -135,7 +133,6 @@ export const signup = async (
       token,
     });
   } catch (error) {
-    console.error("Signup error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -205,7 +202,7 @@ export const login = async (
         id: user._id,
         name: user.name,
         email: user.email,
-        userRole: user.userRole,
+        systemRole: user.systemRole,
         isVerified: user.isVerified,
         isAdmin: user.isAdmin,
         isSuperAdmin: user.isSuperAdmin,
@@ -216,7 +213,6 @@ export const login = async (
       token,
     });
   } catch (error) {
-    console.error("Login error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -226,7 +222,6 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     res.clearCookie("token");
     res.status(200).json({ message: "Logout successful" });
   } catch (error) {
-    console.error("Logout error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -272,7 +267,6 @@ export const verifyEmail = async (
       } as any,
     });
   } catch (error) {
-    console.error("Email verification error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -328,7 +322,6 @@ export const resendVerification = async (
         html: getVerificationEmailTemplate(user.name, verificationToken),
       });
     } catch (emailError) {
-      console.error("Failed to send verification email:", emailError);
       res.status(500).json({ message: "Failed to send verification email" });
       return;
     }
@@ -337,7 +330,6 @@ export const resendVerification = async (
       message: "Verification email sent successfully",
     });
   } catch (error) {
-    console.error("Resend verification error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -385,7 +377,6 @@ export const forgotPassword = async (
         html: getResetPasswordEmailTemplate(user.name, resetToken),
       });
     } catch (emailError) {
-      console.error("Failed to send reset email:", emailError);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
@@ -398,7 +389,6 @@ export const forgotPassword = async (
       message: "Password reset link sent to your email",
     });
   } catch (error) {
-    console.error("Forgot password error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -444,7 +434,6 @@ export const resetPassword = async (
       message: "Password reset successful",
     });
   } catch (error) {
-    console.error("Reset password error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };

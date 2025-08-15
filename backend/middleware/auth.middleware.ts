@@ -23,16 +23,12 @@ export const authenticateToken = async (
 
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
-      console.log("Token from cookies");
     } else if (req.headers.authorization) {
       const authHeader = req.headers.authorization;
       if (authHeader.startsWith("Bearer ")) {
         token = authHeader.split(" ")[1];
-        console.log("Token from Authorization header");
       }
     }
-
-    console.log("Token received:", token ? "Present" : "Missing");
 
     if (!token) {
       res.status(401).json({ message: "Access token required" });
@@ -41,7 +37,6 @@ export const authenticateToken = async (
 
     // Verify JWT secret exists
     if (!process.env.JWT_SECRET) {
-      console.error("JWT_SECRET environment variable is not set");
       res.status(500).json({ message: "Internal server error" });
       return;
     }
@@ -50,9 +45,7 @@ export const authenticateToken = async (
     let decoded: { userId: string };
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET) as { userId: string };
-      console.log("Token decoded successfully:", decoded);
     } catch (jwtError) {
-      console.error("JWT verification failed:", jwtError);
       res.status(401).json({
         message: "Invalid token",
         error:
@@ -74,12 +67,11 @@ export const authenticateToken = async (
     req.user = user;
     next();
   } catch (error) {
-    console.error("Authentication error:", error);
     res.status(401).json({
       message: "Invalid token",
       error: error instanceof Error ? error.message : "Unknown error",
     });
-    return; // CRITICAL FIX: Added return statement here
+    return;
   }
 };
 

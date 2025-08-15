@@ -18,7 +18,7 @@ const createCleanUserResponse = (user: IUser): Partial<IUser> => ({
   name: user.name,
   systemAdminName: user.systemAdminName,
   avatar: user.avatar,
-  userRole: user.userRole,
+  systemRole: user.systemRole,
   provider: user.provider,
   lastLogin: user.lastLogin,
   createdAt: user.createdAt,
@@ -33,15 +33,12 @@ export const getProfile = async (
   res: Response<AuthResponse>
 ): Promise<void> => {
   try {
-    console.log("getProfile called with userId:", req.userId);
-
     if (!req.userId) {
       res.status(401).json({ message: "User ID not found in request" });
       return;
     }
 
     const user = (await User.findById(req.userId)) as IUser | null;
-    console.log("User found in getProfile:", user ? "Yes" : "No");
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
@@ -68,7 +65,6 @@ export const getProfile = async (
       profile: profile,
     });
   } catch (error) {
-    console.error("Get profile error:", error);
     res.status(500).json({
       message: "Internal server error",
       error: error instanceof Error ? error.message : "Unknown error",
@@ -187,7 +183,6 @@ export const updateProfile = async (
       profile: profile,
     });
   } catch (error) {
-    console.error("Update profile error:", error);
     if (error instanceof Error && error.name === "ValidationError") {
       res.status(400).json({
         message: "Validation error",
@@ -250,7 +245,6 @@ export const updateProfileRole = async (
       profile: profile,
     });
   } catch (error) {
-    console.error("Update profile role error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -304,7 +298,6 @@ export const updateProfileLocation = async (
       profile: profile,
     });
   } catch (error) {
-    console.error("Update profile location error:", error);
     if (error instanceof Error && error.name === "ValidationError") {
       res.status(400).json({
         message: "Validation error",
@@ -359,7 +352,6 @@ export const getProfileCompleteness = async (
       },
     });
   } catch (error) {
-    console.error("Get profile completeness error:", error);
     res.status(500).json({
       message: "Internal server error",
       completeness: 0,
@@ -404,7 +396,6 @@ export const getProfileWithContext = async (
       completeness: profile?.completeness || 0,
     });
   } catch (error) {
-    console.error("Get profile with context error:", error);
     res.status(500).json({
       message: "Internal server error",
       error: error instanceof Error ? error.message : "Unknown error",
@@ -449,12 +440,10 @@ export const requireProfileRole = (role: UserRole) => {
         });
       }
 
-      // Attach profile to request for use in subsequent middleware/controllers
       req.profile = profile;
 
       next();
     } catch (error) {
-      console.error("Profile role check error:", error);
       return res.status(500).json({ message: "Internal server error" });
     }
   };
@@ -478,8 +467,6 @@ export const attachProfile = async (
 
     next();
   } catch (error) {
-    console.error("Attach profile error:", error);
-    // Don't fail the request, just continue without profile
     next();
   }
 };
@@ -525,7 +512,6 @@ export const batchProfileOperations = async (
       completeness: profile?.completeness || 0,
     });
   } catch (error) {
-    console.error("Batch profile operations error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
