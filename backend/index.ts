@@ -35,6 +35,7 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
+app.use('/uploads', express.static('uploads'));
 
 // Error handling middleware (optional but recommended)
 app.use(
