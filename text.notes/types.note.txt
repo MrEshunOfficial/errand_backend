@@ -1,0 +1,548 @@
+// types/user.types.ts
+import { Types } from "mongoose";
+import { Request } from "express";
+
+export interface BaseEntity {
+  _id: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SoftDeletable {
+  isDeleted?: boolean;
+  deletedAt?: Date;
+  deletedBy?: Types.ObjectId;
+}
+
+export interface FileReference {
+  url: string;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  uploadedAt?: Date;
+}
+
+export interface UserLocation {
+  ghanaPostGPS: string;
+  nearbyLandmark?: string;
+  region?: string;
+  city?: string;
+  district?: string;
+  locality?: string;
+  other?: string;
+  gpsCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+}
+
+export enum UserRole {
+  CUSTOMER = "customer",
+  PROVIDER = "service_provider",
+}
+
+export enum SystemRole {
+  USER = "user",
+  ADMIN = "admin",
+  SUPER_ADMIN = "super_admin",
+}
+
+export enum UserStatus {
+  ACTIVE = "active",
+  SUSPENDED = "suspended",
+  BLOCKED = "blocked",
+  INACTIVE = "inactive",
+}
+
+export enum AuthProvider {
+  CREDENTIALS = "credentials",
+  GOOGLE = "google",
+  APPLE = "apple",
+}
+
+export enum VerificationStatus {
+  PENDING = "pending",
+  UNDER_REVIEW = "under-review",
+  VERIFIED = "verified",
+  REJECTED = "rejected",
+  SUSPENDED = "suspended",
+}
+
+export enum ModerationStatus {
+  PENDING = "pending",
+  APPROVED = "approved",
+  REJECTED = "rejected",
+  HIDDEN = "hidden",
+  FLAGGED = "flagged",
+}
+
+export enum idType {
+  NATIONAL_ID = "national_id",
+  PASSPORT = "passport",
+  VOTERS_ID = "voters_id",
+  DRIVERS_LICENSE = "drivers_license",
+  NHIS = "nhis",
+  OTHER = "other",
+}
+
+export enum RiskLevel {
+  LOW = "LOW",
+  MEDIUM = "MEDIUM",
+  HIGH = "HIGH",
+  CRITICAL = "CRITICAL",
+}
+
+export enum ProviderOperationalStatus {
+  PROBATIONARY = "probationary",
+  ACTIVE = "active",
+  RESTRICTED = "restricted",
+  SUSPENDED = "suspended",
+  INACTIVE = "inactive",
+}
+
+export interface ProfilePicture {
+  url: string;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  uploadedAt?: Date;
+}
+
+export interface SocialMediaHandle {
+  nameOfSocial: string;
+  userName: string;
+}
+
+// types/preferences.types.ts
+export interface NotificationPreferences {
+  email: boolean;
+  sms: boolean;
+  push: boolean;
+  // Granular notification controls
+  bookingUpdates: boolean;
+  promotions: boolean;
+  providerMessages: boolean;
+  systemAlerts: boolean;
+  weeklyDigest: boolean;
+}
+
+export interface PrivacySettings {
+  shareProfile: boolean;
+  shareLocation: boolean;
+  shareContactDetails: boolean;
+  preferCloseProximity: {
+    location: boolean;
+    radius: number; // in kilometers
+  };
+  allowDirectContact: boolean;
+  showOnlineStatus: boolean;
+}
+
+export interface AppPreferences {
+  theme: "light" | "dark" | "system";
+  language: string;
+  currency: "GHS" | "USD" | "EUR";
+  distanceUnit: "km" | "miles";
+  autoRefresh: boolean;
+  soundEnabled: boolean;
+}
+
+export interface IUserPreferences {
+  notifications: NotificationPreferences;
+  privacy: PrivacySettings;
+  app: AppPreferences;
+  lastUpdated?: Date;
+}
+
+// Individual preference update types
+export type PreferenceCategory = "notifications" | "privacy" | "app";
+
+export interface UpdatePreferenceRequest {
+  category: PreferenceCategory;
+  key: string;
+  value: any;
+}
+
+export interface BulkUpdatePreferenceRequest {
+  category: PreferenceCategory;
+  updates: Record<string, any>;
+}
+
+export interface ContactDetails {
+  primaryContact: string;
+  secondaryContact?: string;
+  businessEmail?: string;
+}
+
+// Enhanced contact info for providers
+export interface ProviderContactInfo extends ContactDetails {
+  emergencyContact: string;
+  businessPhone?: string;
+}
+
+export interface IdDetails {
+  idType: idType;
+  idNumber: string;
+  idFile: FileReference;
+}
+
+// Enhanced verification interface from first file
+export interface UserVerification extends BaseEntity {
+  userId: Types.ObjectId;
+  overallStatus: VerificationStatus;
+
+  // Email verification (basic)
+  emailVerified: boolean;
+  emailVerifiedAt?: Date;
+
+  // Document verification
+  documents: Array<{
+    _id: Types.ObjectId;
+    documentType: string;
+    documentUrl: string;
+    fileName: string;
+    uploadedAt: Date;
+    verifiedAt?: Date;
+    verifiedBy?: Types.ObjectId;
+    status: VerificationStatus;
+    rejectionReason?: string;
+  }>;
+
+  // Identity verification steps
+  verificationSteps: {
+    emailVerification: VerificationStatus;
+    identityVerification: VerificationStatus;
+    addressVerification: VerificationStatus;
+    phoneVerification: VerificationStatus;
+  };
+
+  verifiedAt?: Date;
+  verifiedBy?: Types.ObjectId;
+  verificationNotes?: string;
+  nextReviewDate?: Date;
+}
+
+// User security and tracking
+export interface UserSecurity {
+  lastLoginAt?: Date;
+  lastLoggedOut?: Date;
+  passwordChangedAt?: Date;
+}
+
+export interface UserModeration {
+  moderationStatus: ModerationStatus;
+  lastModeratedBy?: Types.ObjectId;
+  lastModeratedAt?: Date;
+  moderationNotes?: string;
+  warningsCount: number;
+
+  statusChangedBy?: Types.ObjectId;
+  statusChangedAt?: Date;
+  statusReason?: string;
+}
+
+export interface IUserProfile extends BaseEntity, SoftDeletable {
+  userId: Types.ObjectId;
+  role?: UserRole;
+  bio?: string;
+  location?: UserLocation;
+  preferences?: IUserPreferences;
+  socialMediaHandles?: SocialMediaHandle[];
+  lastModified?: Date;
+  contactDetails?: ContactDetails;
+  idDetails?: IdDetails;
+  completeness?: number;
+
+  profilePicture?: ProfilePicture;
+  isActiveInMarketplace?: boolean;
+
+  verificationStatus: VerificationStatus;
+
+  moderationStatus: ModerationStatus;
+  lastModeratedBy?: Types.ObjectId;
+  lastModeratedAt?: Date;
+  moderationNotes?: string;
+  warningsCount: number;
+}
+
+export interface ClientProfile extends BaseEntity, SoftDeletable {
+  profileId: Types.ObjectId;
+
+  preferredServices?: Types.ObjectId[];
+  preferredProviders?: Types.ObjectId[];
+
+  defaultAddress?: UserLocation;
+  paymentPreferences?: string[];
+
+  riskLevel: RiskLevel;
+  trustScore: number;
+}
+
+export interface ProviderProfile extends BaseEntity, SoftDeletable {
+  profileId: Types.ObjectId;
+
+  providerContactInfo: ProviderContactInfo;
+
+  operationalStatus: ProviderOperationalStatus;
+  serviceOfferings: Types.ObjectId[];
+  workingHours: Record<
+    string,
+    {
+      start: string;
+      end: string;
+      isAvailable: boolean;
+    }
+  >;
+  serviceRadius: number;
+  isAvailableForWork: boolean;
+
+  businessName?: string;
+  businessRegistration?: {
+    registrationNumber: string;
+    registrationDocument: FileReference;
+  };
+
+  insurance?: {
+    provider: string;
+    policyNumber: string;
+    expiryDate: Date;
+    document: FileReference;
+  };
+
+  safetyMeasures: {
+    requiresDeposit: boolean;
+    depositAmount?: number;
+    hasInsurance: boolean;
+    insuranceProvider?: string;
+    insuranceExpiryDate?: Date;
+    emergencyContactVerified: boolean;
+  };
+
+  performanceMetrics: {
+    completionRate: number;
+    averageRating: number;
+    totalJobs: number;
+    responseTimeMinutes: number;
+    averageResponseTime: number;
+    cancellationRate: number;
+    disputeRate: number;
+    clientRetentionRate: number;
+  };
+
+  riskLevel: RiskLevel;
+  lastRiskAssessmentDate?: Date;
+  riskAssessedBy?: Types.ObjectId;
+  penaltiesCount: number;
+  lastPenaltyDate?: Date;
+}
+
+export interface IUser extends BaseEntity, SoftDeletable {
+  name: string;
+  email: string;
+  password?: string;
+  lastLogin: Date;
+  isVerified: boolean;
+
+  systemRole: SystemRole;
+  status: UserStatus;
+
+  provider: AuthProvider;
+  providerId?: string;
+
+  avatar?: ProfilePicture;
+  profileId?: Types.ObjectId;
+
+  // Admin fields
+  systemAdminName?: string;
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
+
+  // Security and tokens
+  verificationToken?: string;
+  resetPasswordToken?: string;
+  verificationExpires?: Date;
+  resetPasswordExpires?: Date;
+  refreshToken?: string;
+
+  // Enhanced security
+  security: UserSecurity;
+  moderation: UserModeration;
+  displayName?: string;
+}
+
+export interface DomainProfile extends BaseEntity {
+  userId: Types.ObjectId;
+  domain: "service_marketplace" | "other_feature";
+  profileId: Types.ObjectId;
+  isActive: boolean;
+}
+
+export interface GoogleAuthRequestBody {
+  idToken: string;
+}
+
+export interface AppleAuthRequestBody {
+  idToken: string;
+  user?: {
+    name?: {
+      firstName: string;
+      lastName: string;
+    };
+  };
+}
+
+export interface OAuthUserData {
+  email: string;
+  name: string;
+  avatar?: string;
+  providerId: string;
+  provider: "google" | "apple" | "github" | "facebook";
+}
+
+export interface SignupRequestBody {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface LoginRequestBody {
+  email: string;
+  password: string;
+}
+
+export interface ResetPasswordRequestBody {
+  email: string;
+}
+
+export interface VerifyEmailRequestBody {
+  token: string;
+}
+
+export interface UpdatePasswordRequestBody {
+  token: string;
+  password: string;
+}
+
+export interface ResendVerificationRequestBody {
+  email: string;
+}
+
+export interface UpdateProfileRequestBody {
+  name?: string;
+  avatar?: string | ProfilePicture;
+  profile?: Partial<IUserProfile>;
+}
+
+export interface UpdateProfilePreferencesRequestBody extends IUserPreferences {}
+
+export interface CreateProfileRequestBody
+  extends Omit<IUserProfile, "userId" | "_id" | "createdAt" | "updatedAt"> {}
+
+export interface AuthResponse {
+  message: string;
+  user?: Partial<IUser>;
+  profile?: Partial<IUserProfile> | null;
+  hasProfile?: boolean;
+  token?: string;
+  requiresVerification?: boolean;
+  email?: string;
+  error?: string;
+}
+
+export interface ProfileResponse {
+  message: string;
+  user?: Partial<IUser>;
+  profile?: Partial<IUserProfile>;
+  error?: string;
+}
+
+// Provider linking interface - keeping your structure
+export interface LinkProviderRequestBody {
+  provider: "google" | "apple";
+  idToken: string;
+}
+
+// Extended request interface for authenticated routes - keeping your structure
+export interface AuthenticatedRequest extends Request {
+  userId?: string;
+  profile?: IUserProfile | null;
+  user?: IUser;
+}
+
+// User warnings interface from first file
+export interface UserWarning extends BaseEntity {
+  userId: Types.ObjectId;
+  issuedBy: Types.ObjectId;
+  warningType:
+    | "policy_violation"
+    | "poor_performance"
+    | "safety_concern"
+    | "misconduct";
+  severity: "minor" | "major" | "severe";
+
+  reason: string;
+  details: string;
+  evidence?: FileReference[];
+
+  acknowledgedBy?: Types.ObjectId;
+  acknowledgedAt?: Date;
+
+  expiresAt?: Date;
+  isActive: boolean;
+}
+
+// Combined user with profile for convenience
+export interface UserWithProfile {
+  user: IUser;
+  profile?: IUserProfile;
+  verification?: UserVerification;
+  domainProfiles?: DomainProfile[];
+  activeWarnings?: UserWarning[];
+  clientProfile?: ClientProfile;
+  providerProfile?: ProviderProfile;
+}
+
+// Pagination support
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+  totalPages: number;
+}
+
+// User filters for search/admin
+export interface UserFilters {
+  role?: UserRole[];
+  systemRole?: SystemRole[];
+  status?: UserStatus[];
+  verificationStatus?: VerificationStatus[];
+  moderationStatus?: ModerationStatus[];
+  provider?: AuthProvider[];
+  search?: string;
+  location?: {
+    region?: string;
+    city?: string;
+    district?: string;
+  };
+  dateRange?: {
+    from?: Date;
+    to?: Date;
+  };
+  hasActiveWarnings?: boolean;
+}
+
+// Events for domain events pattern
+export interface DomainEvent extends BaseEntity {
+  eventType: string;
+  aggregateType: string;
+  aggregateId: Types.ObjectId;
+  version: number;
+  payload: Record<string, unknown>;
+  occurredAt: Date;
+  causedBy?: Types.ObjectId;
+  adminActionType?: string;
+  performedBy?: Types.ObjectId;
+}

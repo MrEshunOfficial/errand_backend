@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import profileRoutes from "./routes/profile.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
+import serviceRoutes from "./routes/service.routes.js";
 import { connectDB } from "./database/connectDB";
 import authRoutes from "./routes/auth.routes.js";
 
@@ -35,7 +37,11 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
-app.use('/uploads', express.static('uploads'));
+app.use("/api/categories", categoryRoutes);
+app.use("/api/services", serviceRoutes);
+
+// Static file serving
+app.use("/uploads", express.static("uploads"));
 
 // Error handling middleware (optional but recommended)
 app.use(

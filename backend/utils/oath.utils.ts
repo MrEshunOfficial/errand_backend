@@ -2,10 +2,20 @@
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
-import { IUser } from "../types/user.types";
+
+// Interface for verified OAuth user data
+export interface VerifiedOAuthUser {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string | null;
+  emailVerified: boolean;
+}
 
 // Google OAuth verification
-export const verifyGoogleToken = async (idToken: string) => {
+export const verifyGoogleToken = async (
+  idToken: string
+): Promise<VerifiedOAuthUser> => {
   try {
     // Ensure we have the Google Client ID
     if (!process.env.GOOGLE_CLIENT_ID) {
@@ -34,10 +44,14 @@ export const verifyGoogleToken = async (idToken: string) => {
       throw new Error("No email found in Google token");
     }
 
+    if (!payload.email_verified) {
+      throw new Error("Google email is not verified");
+    }
+
     console.log("Google token verified successfully for:", payload.email);
 
     return {
-      id: payload.sub,
+      id: payload.sub!,
       email: payload.email,
       name: payload.name || "Google User",
       avatar: payload.picture || null,
@@ -54,8 +68,15 @@ export const verifyGoogleToken = async (idToken: string) => {
 };
 
 // Apple OAuth verification with proper key verification
-export const verifyAppleToken = async (idToken: string) => {
+export const verifyAppleToken = async (
+  idToken: string
+): Promise<VerifiedOAuthUser> => {
   try {
+    // Ensure we have the Apple Client ID
+    if (!process.env.APPLE_CLIENT_ID) {
+      throw new Error("APPLE_CLIENT_ID environment variable is not set");
+    }
+
     // Apple's public key endpoint
     const client = jwksClient({
       jwksUri: "https://appleid.apple.com/auth/keys",
@@ -71,7 +92,7 @@ export const verifyAppleToken = async (idToken: string) => {
       throw new Error("Invalid Apple token format");
     }
 
-    const { header, payload } = decoded;
+    const { header } = decoded;
 
     if (!header.kid) {
       throw new Error("No key ID found in Apple token header");
@@ -87,6 +108,10 @@ export const verifyAppleToken = async (idToken: string) => {
       audience: process.env.APPLE_CLIENT_ID, // Your Apple service ID
       issuer: "https://appleid.apple.com",
     }) as any;
+
+    if (!verifiedPayload.email) {
+      throw new Error("No email found in Apple token");
+    }
 
     console.log(
       "Apple token verified successfully for:",
@@ -112,79 +137,3 @@ export const verifyAppleToken = async (idToken: string) => {
   }
 };
 
-// Fallback Apple verification for development (less secure)
-export const verifyAppleTokenDev = async (idToken: string) => {
-  try {
-    console.warn(
-      "Using development Apple token verification - not recommended for production"
-    );
-
-    // For development only - decode without verification
-    const decoded = jwt.decode(idToken, { complete: true });
-
-    if (!decoded || typeof decoded === "string") {
-      throw new Error("Invalid Apple token");
-    }
-
-    const payload = decoded.payload as any;
-
-    return {
-      id: payload.sub,
-      email: payload.email || `apple_${payload.sub}@privaterelay.appleid.com`,
-      name: payload.name || "Apple User",
-      avatar: null,
-      emailVerified:
-        payload.email_verified === "true" || payload.email_verified === true,
-    };
-  } catch (error) {
-    console.error("Apple token verification failed:", error);
-    throw new Error("Apple token verification failed");
-  }
-};
-
-// Generate username from email for OAuth users
-export const generateUsernameFromEmail = (email: string): string => {
-  return email.split("@")[0] + Math.random().toString(36).substring(2, 6);
-};
-
-// utils/auth.utils.ts
-
-/**
- * Check if email is super admin
- */
-export const isSuperAdminEmail = (email: string): boolean => {
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-  if (!superAdminEmail) {
-    return false;
-  }
-  return email.toLowerCase() === superAdminEmail.toLowerCase();
-};
-
-/**
- * Apply super admin properties to user document
- */
-export const applySuperAdminProperties = (userDoc: IUser) => {
-  userDoc.systemRole = "super_admin";
-  userDoc.systemAdminName = process.env.SUPER_ADMIN_NAME;
-  userDoc.isSuperAdmin = true;
-  userDoc.isAdmin = true;
-  userDoc.isVerified = true;
-  return userDoc;
-};
-
-/**
- * Create a standardized user response object
- */
-export const createUserResponse = (user: IUser) => {
-  return { ...user };
-};
-
-/**
- * Validate password strength
- */
-export const validatePassword = (password: string): string | null => {
-  if (password.length < 6) {
-    return "Password must be at least 6 characters long";
-  }
-  return null;
-};

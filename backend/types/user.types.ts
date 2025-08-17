@@ -1,123 +1,78 @@
 // types/user.types.ts
 import { Types } from "mongoose";
-import { Request } from "express"; // Add this import
+import { Request } from "express";
+import {
+  BaseEntity,
+  SoftDeletable,
+  ProfilePicture,
+  SystemRole,
+  UserStatus,
+  AuthProvider,
+  ModerationStatus,
+  IUserPreferences,
+} from "./base.types";
+import { IUserProfile } from "./profile.types";
 
-export interface BaseEntity {
-  _id: Types.ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
+// User security and tracking
+export interface UserSecurity {
+  lastLoginAt?: Date;
+  lastLoggedOut?: Date;
+  passwordChangedAt?: Date;
 }
 
-export interface UserLocation {
-  ghanaPostGPS: string;
-  nearbyLandmark?: string;
-  region?: string;
-  city?: string;
-  district?: string;
-  locality?: string;
-  other?: string;
-  gpsCoordinates?: {
-    latitude: number;
-    longitude: number;
-  };
+export interface UserModeration {
+  moderationStatus: ModerationStatus;
+  lastModeratedBy?: Types.ObjectId;
+  lastModeratedAt?: Date;
+  moderationNotes?: string;
+  warningsCount: number;
+
+  statusChangedBy?: Types.ObjectId;
+  statusChangedAt?: Date;
+  statusReason?: string;
 }
 
-export enum UserRole {
-  CUSTOMER = "customer",
-  PROVIDER = "service_provider",
-}
-
-export enum idType {
-  NATIONAL_ID = "national_id",
-  PASSPORT = "passport",
-  VOTERS_ID = "voters_id",
-  DRIVERS_LICENSE = "drivers_license",
-  NHIS = "nhis",
-  OTHER = "other",
-}
-
-export interface ProfilePicture {
-  url: string;
-  fileName: string;
-}
-
-export interface SocialMediaHandle {
-  nameOfSocial: string;
-  userName: string;
-}
-
-export interface IUserPreferences {
-  theme?: "light" | "dark" | "system";
-  notifications?: boolean;
-  language?: string;
-  privacySettings?: {
-    shareProfile?: boolean;
-    shareLocation?: boolean;
-    shareContactDetails?: boolean;
-    preferCloseProximity?: {
-      location?: boolean;
-      radius?: number;
-    };
-  };
-}
-
-export interface ContactDetails {
-  primaryContact: string;
-  secondaryContact?: string;
-}
-
-export interface IdDetails {
-  idType: idType;
-  idNumber: string;
-  idFile: {
-    url: string;
-    fileName: string;
-  };
-}
-
-// Profile interface
-export interface IUserProfile extends BaseEntity {
-  userId: Types.ObjectId; // Reference to user
-  role?: UserRole;
-  bio?: string;
-  location?: UserLocation;
-  preferences?: IUserPreferences;
-  socialMediaHandles?: SocialMediaHandle[];
-  lastModified?: Date; // Cache invalidation
-  contactDetails?: ContactDetails;
-  idDetails?: IdDetails;
-  completeness?: number; // Virtual field calculated by Mongoose
-}
-
-// Main user interface
-export interface IUser extends BaseEntity {
+export interface IUser extends BaseEntity, SoftDeletable {
   name: string;
   email: string;
   password?: string;
   lastLogin: Date;
   isVerified: boolean;
-  systemRole: "user" | "admin" | "super_admin";
-  provider: "credentials" | "google" | "apple";
+
+  systemRole: SystemRole;
+  status: UserStatus;
+
+  provider: AuthProvider;
   providerId?: string;
-  avatar?: ProfilePicture | string; // URL or ProfilePicture object
+
+  avatar?: ProfilePicture;
+  profileId?: Types.ObjectId;
+
+  // Admin fields
   systemAdminName?: string;
   isAdmin: boolean;
   isSuperAdmin: boolean;
+
+  // Security and tokens
   verificationToken?: string;
   resetPasswordToken?: string;
   verificationExpires?: Date;
   resetPasswordExpires?: Date;
   refreshToken?: string;
-  profileId?: Types.ObjectId;
+
+  // Enhanced security
+  security: UserSecurity;
+  moderation: UserModeration;
+  displayName?: string;
 }
 
-// OAuth-related interfaces
+// Auth-related interfaces
 export interface GoogleAuthRequestBody {
-  idToken: string; // Google ID token from frontend
+  idToken: string;
 }
 
 export interface AppleAuthRequestBody {
-  idToken: string; // Apple ID token from frontend
+  idToken: string;
   user?: {
     name?: {
       firstName: string;
@@ -134,7 +89,6 @@ export interface OAuthUserData {
   provider: "google" | "apple" | "github" | "facebook";
 }
 
-// Authentication request interfaces
 export interface SignupRequestBody {
   name: string;
   email: string;
@@ -163,7 +117,6 @@ export interface ResendVerificationRequestBody {
   email: string;
 }
 
-// Profile update request interfaces
 export interface UpdateProfileRequestBody {
   name?: string;
   avatar?: string | ProfilePicture;
@@ -172,10 +125,17 @@ export interface UpdateProfileRequestBody {
 
 export interface UpdateProfilePreferencesRequestBody extends IUserPreferences {}
 
-export interface CreateProfileRequestBody
-  extends Omit<IUserProfile, "userId" | "_id" | "createdAt" | "updatedAt"> {}
+export interface LinkProviderRequestBody {
+  provider: "google" | "apple";
+  idToken: string;
+}
 
-// Response interfaces
+export interface AuthenticatedRequest extends Request {
+  userId?: string;
+  profile?: IUserProfile | null;
+  user?: IUser;
+}
+
 export interface AuthResponse {
   message: string;
   user?: Partial<IUser>;
@@ -185,23 +145,4 @@ export interface AuthResponse {
   requiresVerification?: boolean;
   email?: string;
   error?: string;
-}
-
-export interface ProfileResponse {
-  message: string;
-  user?: Partial<IUser>;
-  profile?: Partial<IUserProfile>;
-  error?: string;
-}
-
-// Provider linking interface
-export interface LinkProviderRequestBody {
-  provider: "google" | "apple";
-  idToken: string;
-}
-
-// Extended request interface for authenticated routes
-export interface AuthenticatedRequest extends Request {
-  userId?: string;
-  profile?: IUserProfile | null; // Add this for profile middleware
 }

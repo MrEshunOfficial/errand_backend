@@ -1,4 +1,6 @@
+// types/user.types.ts
 import { Types } from "mongoose";
+import { Request } from "express";
 
 export interface BaseEntity {
   _id: Types.ObjectId;
@@ -12,19 +14,26 @@ export interface SoftDeletable {
   deletedBy?: Types.ObjectId;
 }
 
-export interface Timestamped {
-  createdAt: Date;
-  updatedAt: Date;
+export interface FileReference {
+  url: string;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  uploadedAt?: Date;
 }
 
-export interface GhanaAddress {
+export interface UserLocation {
   ghanaPostGPS: string;
-  region: string;
-  city: string;
-  district: string;
-  locality?: string;
   nearbyLandmark?: string;
-  traditionalAddress?: string;
+  region?: string;
+  city?: string;
+  district?: string;
+  locality?: string;
+  other?: string;
+  gpsCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 export interface ContactInfo {
@@ -36,14 +45,6 @@ export interface ContactInfo {
 export interface ProviderContactInfo extends ContactInfo {
   emergencyContact: string;
   businessPhone?: string;
-}
-
-export interface FileReference {
-  url: string;
-  fileName: string;
-  fileSize?: number;
-  mimeType?: string;
-  uploadedAt?: Date;
 }
 
 export interface IdVerification {
@@ -58,10 +59,14 @@ export interface SocialMediaHandle {
   url?: string;
 }
 
-export enum AuthProvider {
-  CREDENTIALS = "credentials",
-  GOOGLE = "google",
-  APPLE = "apple",
+export enum UserRole {
+  CUSTOMER = "customer",
+  PROVIDER = "service_provider",
+}
+
+export enum MarketplaceRole {
+  CLIENT = "client",
+  PROVIDER = "provider",
 }
 
 export enum SystemRole {
@@ -77,9 +82,10 @@ export enum UserStatus {
   INACTIVE = "inactive",
 }
 
-export enum MarketplaceRole {
-  CLIENT = "client",
-  PROVIDER = "provider",
+export enum AuthProvider {
+  CREDENTIALS = "credentials",
+  GOOGLE = "google",
+  APPLE = "apple",
 }
 
 export enum VerificationStatus {
@@ -88,6 +94,30 @@ export enum VerificationStatus {
   VERIFIED = "verified",
   REJECTED = "rejected",
   SUSPENDED = "suspended",
+}
+
+export enum ModerationStatus {
+  PENDING = "pending",
+  APPROVED = "approved",
+  REJECTED = "rejected",
+  HIDDEN = "hidden",
+  FLAGGED = "flagged",
+}
+
+export enum idType {
+  NATIONAL_ID = "national_id",
+  PASSPORT = "passport",
+  VOTERS_ID = "voters_id",
+  DRIVERS_LICENSE = "drivers_license",
+  NHIS = "nhis",
+  OTHER = "other",
+}
+
+export enum RiskLevel {
+  LOW = "LOW",
+  MEDIUM = "MEDIUM",
+  HIGH = "HIGH",
+  CRITICAL = "CRITICAL",
 }
 
 export enum ProviderOperationalStatus {
@@ -124,21 +154,82 @@ export enum ServiceStatus {
   INACTIVE = "inactive",
 }
 
-export enum ModerationStatus {
-  PENDING = "pending",
-  APPROVED = "approved",
-  REJECTED = "rejected",
-  HIDDEN = "hidden",
-  FLAGGED = "flagged",
+export interface ProfilePicture {
+  url: string;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  uploadedAt?: Date;
 }
 
-export enum RiskLevel {
-  LOW = "LOW",
-  MEDIUM = "MEDIUM",
-  HIGH = "HIGH",
-  CRITICAL = "CRITICAL",
+// types/preferences.types.ts
+export interface NotificationPreferences {
+  email: boolean;
+  sms: boolean;
+  push: boolean;
+  // Granular notification controls
+  bookingUpdates: boolean;
+  promotions: boolean;
+  providerMessages: boolean;
+  systemAlerts: boolean;
+  weeklyDigest: boolean;
 }
 
+export interface PrivacySettings {
+  shareProfile: boolean;
+  shareLocation: boolean;
+  shareContactDetails: boolean;
+  preferCloseProximity: {
+    location: boolean;
+    radius: number; // in kilometers
+  };
+  allowDirectContact: boolean;
+  showOnlineStatus: boolean;
+}
+
+export interface AppPreferences {
+  theme: "light" | "dark" | "system";
+  language: string;
+  currency: "GHS" | "USD" | "EUR";
+  distanceUnit: "km" | "miles";
+  autoRefresh: boolean;
+  soundEnabled: boolean;
+}
+
+export interface IUserPreferences {
+  notifications: NotificationPreferences;
+  privacy: PrivacySettings;
+  app: AppPreferences;
+  lastUpdated?: Date;
+}
+
+// Individual preference update types
+export type PreferenceCategory = "notifications" | "privacy" | "app";
+
+export interface UpdatePreferenceRequest {
+  category: PreferenceCategory;
+  key: string;
+  value: any;
+}
+
+export interface BulkUpdatePreferenceRequest {
+  category: PreferenceCategory;
+  updates: Record<string, any>;
+}
+
+export interface ContactDetails {
+  primaryContact: string;
+  secondaryContact?: string;
+  businessEmail?: string;
+}
+
+export interface IdDetails {
+  idType: idType;
+  idNumber: string;
+  idFile: FileReference;
+}
+
+// Core Identity - from first file
 export interface CoreIdentity extends BaseEntity, SoftDeletable {
   email: string;
   emailVerified: boolean;
@@ -164,13 +255,138 @@ export interface CoreIdentity extends BaseEntity, SoftDeletable {
   statusReason?: string;
 }
 
-export interface DomainProfile {
-  identityId: Types.ObjectId;
-  domain: "service_marketplace" | "other_feature";
-  profileId: Types.ObjectId;
-  isActive: boolean;
+// Enhanced verification interface from first file
+export interface UserVerification extends BaseEntity {
+  userId: Types.ObjectId;
+  overallStatus: VerificationStatus;
+
+  // Email verification (basic)
+  emailVerified: boolean;
+  emailVerifiedAt?: Date;
+
+  // Document verification
+  documents: Array<{
+    _id: Types.ObjectId;
+    documentType: string;
+    documentUrl: string;
+    fileName: string;
+    uploadedAt: Date;
+    verifiedAt?: Date;
+    verifiedBy?: Types.ObjectId;
+    status: VerificationStatus;
+    rejectionReason?: string;
+  }>;
+
+  // Identity verification steps
+  verificationSteps: {
+    emailVerification: VerificationStatus;
+    identityVerification: VerificationStatus;
+    addressVerification: VerificationStatus;
+    phoneVerification: VerificationStatus;
+  };
+
+  verifiedAt?: Date;
+  verifiedBy?: Types.ObjectId;
+  verificationNotes?: string;
+  nextReviewDate?: Date;
 }
 
+// Service User Verification - from first file
+export interface ServiceUserVerification extends BaseEntity {
+  serviceUserId: Types.ObjectId;
+  overallStatus: VerificationStatus;
+
+  documents: Array<{
+    _id: Types.ObjectId;
+    documentType: string;
+    documentUrl: string;
+    fileName: string;
+    uploadedAt: Date;
+    verifiedAt?: Date;
+    verifiedBy?: Types.ObjectId;
+    status: VerificationStatus;
+    rejectionReason?: string;
+  }>;
+
+  witnessDetails: Array<{
+    fullName: string;
+    phone: string;
+    idType: string;
+    idNumber: string;
+    relationship: string;
+    verificationStatus: VerificationStatus;
+    verifiedAt?: Date;
+    verifiedBy?: Types.ObjectId;
+  }>;
+
+  verificationSteps: {
+    identityVerification: VerificationStatus;
+    addressVerification: VerificationStatus;
+    skillVerification: VerificationStatus;
+    backgroundCheck: VerificationStatus;
+    witnessVerification: VerificationStatus;
+  };
+
+  verifiedAt?: Date;
+  verifiedBy?: Types.ObjectId;
+  verificationNotes?: string;
+  nextReviewDate?: Date;
+
+  probationaryPeriod?: {
+    startDate: Date;
+    endDate: Date;
+    maxJobsAllowed: number;
+    maxJobValue: number;
+    currentJobCount: number;
+    requiresClientConfirmation: boolean;
+    supervisionRequired: boolean;
+  };
+}
+
+// User security and tracking
+export interface UserSecurity {
+  lastLoginAt?: Date;
+  lastLoggedOut?: Date;
+  passwordChangedAt?: Date;
+}
+
+export interface UserModeration {
+  moderationStatus: ModerationStatus;
+  lastModeratedBy?: Types.ObjectId;
+  lastModeratedAt?: Date;
+  moderationNotes?: string;
+  warningsCount: number;
+
+  statusChangedBy?: Types.ObjectId;
+  statusChangedAt?: Date;
+  statusReason?: string;
+}
+
+export interface IUserProfile extends BaseEntity, SoftDeletable {
+  userId: Types.ObjectId;
+  role?: UserRole;
+  bio?: string;
+  location?: UserLocation;
+  preferences?: IUserPreferences;
+  socialMediaHandles?: SocialMediaHandle[];
+  lastModified?: Date;
+  contactDetails?: ContactDetails;
+  idDetails?: IdDetails;
+  completeness?: number;
+
+  profilePicture?: ProfilePicture;
+  isActiveInMarketplace?: boolean;
+
+  verificationStatus: VerificationStatus;
+
+  moderationStatus: ModerationStatus;
+  lastModeratedBy?: Types.ObjectId;
+  lastModeratedAt?: Date;
+  moderationNotes?: string;
+  warningsCount: number;
+}
+
+// Service User - from first file
 export interface ServiceUser extends BaseEntity, SoftDeletable {
   identityId: Types.ObjectId;
   serviceUserId: string;
@@ -178,7 +394,7 @@ export interface ServiceUser extends BaseEntity, SoftDeletable {
 
   fullName: string;
   contactInfo: ContactInfo;
-  address: GhanaAddress;
+  address: UserLocation;
   idVerification: IdVerification;
 
   profilePicture?: FileReference;
@@ -206,7 +422,7 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
   preferredServices?: Types.ObjectId[];
   preferredProviders?: Types.ObjectId[];
 
-  defaultAddress?: GhanaAddress;
+  defaultAddress?: UserLocation;
   paymentPreferences?: string[];
 
   riskLevel: RiskLevel;
@@ -271,57 +487,48 @@ export interface ProviderProfile extends BaseEntity, SoftDeletable {
   lastPenaltyDate?: Date;
 }
 
-export interface ServiceUserVerification extends BaseEntity {
-  serviceUserId: Types.ObjectId;
-  overallStatus: VerificationStatus;
+export interface IUser extends BaseEntity, SoftDeletable {
+  name: string;
+  email: string;
+  password?: string;
+  lastLogin: Date;
+  isVerified: boolean;
 
-  documents: Array<{
-    _id: Types.ObjectId;
-    documentType: string;
-    documentUrl: string;
-    fileName: string;
-    uploadedAt: Date;
-    verifiedAt?: Date;
-    verifiedBy?: Types.ObjectId;
-    status: VerificationStatus;
-    rejectionReason?: string;
-  }>;
+  systemRole: SystemRole;
+  status: UserStatus;
 
-  witnessDetails: Array<{
-    fullName: string;
-    phone: string;
-    idType: string;
-    idNumber: string;
-    relationship: string;
-    verificationStatus: VerificationStatus;
-    verifiedAt?: Date;
-    verifiedBy?: Types.ObjectId;
-  }>;
+  provider: AuthProvider;
+  providerId?: string;
 
-  verificationSteps: {
-    identityVerification: VerificationStatus;
-    addressVerification: VerificationStatus;
-    skillVerification: VerificationStatus;
-    backgroundCheck: VerificationStatus;
-    witnessVerification: VerificationStatus;
-  };
+  avatar?: ProfilePicture;
+  profileId?: Types.ObjectId;
 
-  verifiedAt?: Date;
-  verifiedBy?: Types.ObjectId;
-  verificationNotes?: string;
-  nextReviewDate?: Date;
+  // Admin fields
+  systemAdminName?: string;
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
 
-  probationaryPeriod?: {
-    startDate: Date;
-    endDate: Date;
-    maxJobsAllowed: number;
-    maxJobValue: number;
-    currentJobCount: number;
-    requiresClientConfirmation: boolean;
-    supervisionRequired: boolean;
-  };
+  // Security and tokens
+  verificationToken?: string;
+  resetPasswordToken?: string;
+  verificationExpires?: Date;
+  resetPasswordExpires?: Date;
+  refreshToken?: string;
+
+  // Enhanced security
+  security: UserSecurity;
+  moderation: UserModeration;
+  displayName?: string;
 }
 
+export interface DomainProfile extends BaseEntity {
+  identityId: Types.ObjectId;
+  domain: "service_marketplace" | "other_feature";
+  profileId: Types.ObjectId;
+  isActive: boolean;
+}
+
+// Categories and Services - from first file
 export interface Category extends BaseEntity, SoftDeletable {
   name: string;
   description?: string;
@@ -370,6 +577,7 @@ export interface Service extends BaseEntity, SoftDeletable {
   moderationNotes?: string;
 }
 
+// Service Request - from first file
 export interface ServiceRequest extends BaseEntity, SoftDeletable {
   requestNumber: string;
 
@@ -380,7 +588,7 @@ export interface ServiceRequest extends BaseEntity, SoftDeletable {
   status: RequestStatus;
   scheduledDate?: Date;
 
-  serviceAddress: GhanaAddress;
+  serviceAddress: UserLocation;
 
   pricing: {
     estimatedPrice?: number;
@@ -466,6 +674,7 @@ export interface ServiceRequest extends BaseEntity, SoftDeletable {
   metadata?: Record<string, unknown>;
 }
 
+// Reviews - from first file
 export interface Review extends BaseEntity, SoftDeletable {
   requestId: Types.ObjectId;
   reviewerId: Types.ObjectId;
@@ -509,6 +718,7 @@ export interface UserRatingStats extends BaseEntity {
   lastUpdatedAt: Date;
 }
 
+// Risk Assessment - from first file
 export interface ProviderRiskAssessment extends BaseEntity {
   providerId: Types.ObjectId;
   riskLevel: RiskLevel;
@@ -536,6 +746,7 @@ export interface ProviderRiskAssessment extends BaseEntity {
   notes?: string;
 }
 
+// Safety and Incidents - from first file
 export interface SafetyIncident extends BaseEntity {
   incidentType:
     | "property_damage"
@@ -552,7 +763,7 @@ export interface SafetyIncident extends BaseEntity {
 
   description: string;
   evidence?: FileReference[];
-  location?: GhanaAddress;
+  location?: UserLocation;
 
   status: "reported" | "investigating" | "resolved" | "escalated";
   assignedAdmin?: Types.ObjectId;
@@ -597,6 +808,100 @@ export interface UserWarning extends BaseEntity {
   isActive: boolean;
 }
 
+// OAuth and Auth types
+export interface GoogleAuthRequestBody {
+  idToken: string;
+}
+
+export interface AppleAuthRequestBody {
+  idToken: string;
+  user?: {
+    name?: {
+      firstName: string;
+      lastName: string;
+    };
+  };
+}
+
+export interface OAuthUserData {
+  email: string;
+  name: string;
+  avatar?: string;
+  providerId: string;
+  provider: "google" | "apple" | "github" | "facebook";
+}
+
+export interface SignupRequestBody {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface LoginRequestBody {
+  email: string;
+  password: string;
+}
+
+export interface ResetPasswordRequestBody {
+  email: string;
+}
+
+export interface VerifyEmailRequestBody {
+  token: string;
+}
+
+export interface UpdatePasswordRequestBody {
+  token: string;
+  password: string;
+}
+
+export interface ResendVerificationRequestBody {
+  email: string;
+}
+
+export interface UpdateProfileRequestBody {
+  name?: string;
+  avatar?: string | ProfilePicture;
+  profile?: Partial<IUserProfile>;
+}
+
+export interface UpdateProfilePreferencesRequestBody extends IUserPreferences {}
+
+export interface CreateProfileRequestBody
+  extends Omit<IUserProfile, "userId" | "_id" | "createdAt" | "updatedAt"> {}
+
+export interface AuthResponse {
+  message: string;
+  user?: Partial<IUser>;
+  profile?: Partial<IUserProfile> | null;
+  hasProfile?: boolean;
+  token?: string;
+  requiresVerification?: boolean;
+  email?: string;
+  error?: string;
+}
+
+export interface ProfileResponse {
+  message: string;
+  user?: Partial<IUser>;
+  profile?: Partial<IUserProfile>;
+  error?: string;
+}
+
+// Provider linking interface - keeping your structure
+export interface LinkProviderRequestBody {
+  provider: "google" | "apple";
+  idToken: string;
+}
+
+// Extended request interface for authenticated routes - keeping your structure
+export interface AuthenticatedRequest extends Request {
+  userId?: string;
+  profile?: IUserProfile | null;
+  user?: IUser;
+}
+
+// Combined user interfaces - from first file
 export interface UserWithServiceProfile {
   identity: CoreIdentity;
   serviceProfile?: ServiceUser;
@@ -617,6 +922,18 @@ export interface ServiceRequestWithDetails extends ServiceRequest {
   incidents?: SafetyIncident[];
 }
 
+// Combined user with profile for convenience
+export interface UserWithProfile {
+  user: IUser;
+  profile?: IUserProfile;
+  verification?: UserVerification;
+  domainProfiles?: DomainProfile[];
+  activeWarnings?: UserWarning[];
+  clientProfile?: ClientProfile;
+  providerProfile?: ProviderProfile;
+}
+
+// Pagination support
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
@@ -627,6 +944,7 @@ export interface PaginatedResponse<T> {
   totalPages: number;
 }
 
+// Filters - from first file
 export interface ServiceFilters {
   categoryId?: Types.ObjectId;
   status?: ServiceStatus[];
@@ -664,6 +982,28 @@ export interface ProviderFilters {
   hasActiveWarnings?: boolean;
 }
 
+// User filters for search/admin
+export interface UserFilters {
+  role?: UserRole[];
+  systemRole?: SystemRole[];
+  status?: UserStatus[];
+  verificationStatus?: VerificationStatus[];
+  moderationStatus?: ModerationStatus[];
+  provider?: AuthProvider[];
+  search?: string;
+  location?: {
+    region?: string;
+    city?: string;
+    district?: string;
+  };
+  dateRange?: {
+    from?: Date;
+    to?: Date;
+  };
+  hasActiveWarnings?: boolean;
+}
+
+// Events for domain events pattern
 export interface DomainEvent extends BaseEntity {
   eventType: string;
   aggregateType: string;

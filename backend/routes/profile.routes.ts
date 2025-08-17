@@ -8,16 +8,25 @@ import {
   getProfileCompleteness,
   getProfileWithContext,
   batchProfileOperations,
-  requireProfileRole,
-  attachProfile,
+  updateProfilePreferences,
+  updateSpecificPreference,
+  bulkUpdatePreferences,
+  deleteProfile,
+  restoreProfile,
+  updateMarketplaceStatus,
 } from "../controllers/profile.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
-import { UserRole, AuthenticatedRequest } from "../types/user.types.js";
+import ClientProfileController from "../controllers/clientProfile.controller.js";
+import ProviderProfileController from "../controllers/providerProfile.controller.js";
 
 const router = express.Router();
 
 // All profile routes require authentication
 router.use(authenticateToken);
+
+// ===================================================================
+// MAIN PROFILE ROUTES - Core profile management functionality
+// ===================================================================
 
 // Basic profile routes
 router.get("/", getProfile as any);
@@ -31,42 +40,162 @@ router.get("/batch-operations", batchProfileOperations as any);
 // Specific profile update routes
 router.patch("/role", updateProfileRole as any);
 router.patch("/location", updateProfileLocation as any);
+router.patch("/marketplace-status", updateMarketplaceStatus as any);
 
-// Role-based access routes (business logic roles only)
+// Preference management routes
+router.put("/preferences", updateProfilePreferences as any);
+router.patch("/preferences/specific", updateSpecificPreference as any);
+router.patch("/preferences/bulk", bulkUpdatePreferences as any);
+
+// Profile lifecycle routes
+router.delete("/", deleteProfile as any);
+router.patch("/restore", restoreProfile as any);
+
+// ===================================================================
+// CLIENT PROFILE ROUTES - Client-specific profile functionality
+// ===================================================================
+
+// Current user's client profile routes
+router.post("/client-profile", ClientProfileController.createClientProfile);
+router.get("/client-profile", ClientProfileController.getMyClientProfile);
+router.put("/client-profile", ClientProfileController.updateMyClientProfile);
+
+// Client profile management by specific ID (mainly for admin use)
 router.get(
-  "/client-dashboard",
-  requireProfileRole(UserRole.CUSTOMER),
-  (req: AuthenticatedRequest, res: Response) => {
-    res.json({
-      message: "Welcome to client dashboard",
-      profile: req.profile,
-    });
-  }
+  "/client-profiles/:id",
+  ClientProfileController.getClientProfileById
+);
+router.put("/client-profiles/:id", ClientProfileController.updateClientProfile);
+router.delete(
+  "/client-profiles/:id",
+  ClientProfileController.deleteClientProfile
 );
 
+// Client profile management by profile ID (admin use)
 router.get(
-  "/provider-dashboard",
-  requireProfileRole(UserRole.PROVIDER),
-  (req: AuthenticatedRequest, res: Response) => {
-    res.json({
-      message: "Welcome to service provider dashboard",
-      profile: req.profile,
-    });
-  }
+  "/client-profiles/by-profile/:profileId",
+  ClientProfileController.getClientProfileByProfileId
 );
 
-// Routes that need profile context but don't require specific roles
+// Specialized client profile routes
+router.patch(
+  "/client-profiles/:id/trust-score",
+  ClientProfileController.updateTrustScore
+);
+router.post(
+  "/client-profiles/:id/preferred-services",
+  ClientProfileController.addPreferredService
+);
+router.delete(
+  "/client-profiles/:id/preferred-services/:serviceId",
+  ClientProfileController.removePreferredService
+);
+router.post(
+  "/client-profiles/:id/preferred-providers",
+  ClientProfileController.addPreferredProvider
+);
+router.delete(
+  "/client-profiles/:id/preferred-providers/:providerId",
+  ClientProfileController.removePreferredProvider
+);
+
+// Admin routes for client profiles
+router.get("/client-profiles", ClientProfileController.getAllClientProfiles);
 router.get(
-  "/context-aware",
-  attachProfile,
-  (req: AuthenticatedRequest, res: Response) => {
-    const profile = req.profile;
-    res.json({
-      message: "Route with profile context",
-      hasProfile: !!profile,
-      profileRole: profile?.role || null,
-    });
-  }
+  "/client-profiles/high-risk",
+  ClientProfileController.getHighRiskClients
+);
+
+// ===================================================================
+// PROVIDER PROFILE ROUTES - Provider-specific profile functionality
+// ===================================================================
+
+// Current user's provider profile routes
+router.post(
+  "/provider-profile",
+  ProviderProfileController.createProviderProfile as any
+);
+router.get(
+  "/provider-profile",
+  ProviderProfileController.getMyProviderProfile as any
+);
+router.put(
+  "/provider-profile",
+  ProviderProfileController.updateProviderProfile
+);
+
+// Provider profile management by specific ID (mainly for admin use)
+router.get(
+  "/provider-profiles/:id",
+  ProviderProfileController.getProviderProfileById
+);
+router.put(
+  "/provider-profiles/:id",
+  ProviderProfileController.updateProviderProfile
+);
+router.delete(
+  "/provider-profiles/:id",
+  ProviderProfileController.deleteProviderProfile
+);
+
+// Provider profile management by profile ID (admin use)
+router.get(
+  "/provider-profiles/by-profile/:profileId",
+  ProviderProfileController.getProviderProfileByProfileId
+);
+
+// Provider operational status management
+router.patch(
+  "/provider-profiles/:id/operational-status",
+  ProviderProfileController.updateOperationalStatus
+);
+router.patch(
+  "/provider-profiles/:id/toggle-availability",
+  ProviderProfileController.toggleAvailability
+);
+
+// Provider performance management
+router.patch(
+  "/provider-profiles/:id/performance-metrics",
+  ProviderProfileController.updatePerformanceMetrics
+);
+router.post(
+  "/provider-profiles/:id/penalties",
+  ProviderProfileController.addPenalty
+);
+
+// Provider service offering management
+router.post(
+  "/provider-profiles/:id/service-offerings",
+  ProviderProfileController.addServiceOffering
+);
+router.delete(
+  "/provider-profiles/:id/service-offerings/:serviceId",
+  ProviderProfileController.removeServiceOffering
+);
+
+// Provider working hours management
+router.patch(
+  "/provider-profiles/:id/working-hours",
+  ProviderProfileController.updateWorkingHours
+);
+
+// Admin routes for provider profiles - Discovery and filtering
+router.get(
+  "/provider-profiles",
+  ProviderProfileController.getAllProviderProfiles
+);
+router.get(
+  "/provider-profiles/available",
+  ProviderProfileController.getAvailableProviders
+);
+router.get(
+  "/provider-profiles/top-rated",
+  ProviderProfileController.getTopRatedProviders
+);
+router.get(
+  "/provider-profiles/high-risk",
+  ProviderProfileController.getHighRiskProviders
 );
 
 export default router;

@@ -21,6 +21,7 @@ import {
   getVerificationEmailTemplate,
   getResetPasswordEmailTemplate,
 } from "../utils/useEmailTemplate";
+import { SystemRole, AuthProvider } from "../types";
 
 // Helper function to check if email is super admin
 const isSuperAdminEmail = (email: string): boolean => {
@@ -33,7 +34,7 @@ const isSuperAdminEmail = (email: string): boolean => {
 
 // Helper function to apply super admin properties
 const applySuperAdminProperties = (userDoc: any) => {
-  userDoc.userRole = "super_admin";
+  userDoc.systemRole = SystemRole.SUPER_ADMIN;
   userDoc.systemAdminName = process.env.SUPER_ADMIN_NAME;
   userDoc.isSuperAdmin = true;
   userDoc.isAdmin = true;
@@ -81,10 +82,15 @@ export const signup = async (
       name: name.trim(),
       email: email.toLowerCase(),
       password: hashedPassword,
-      provider: "credentials",
+      provider: AuthProvider.CREDENTIALS,
       verificationToken,
       verificationExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
       lastLogin: new Date(),
+      // Initialize security object with lastLogin
+      security: {
+        lastLoginAt: new Date(),
+      },
+      // Moderation object will be initialized by default values in schema
     });
 
     // Apply super admin properties if needed
@@ -104,6 +110,7 @@ export const signup = async (
         });
       } catch (emailError) {
         // Continue without failing the registration
+        console.error("Failed to send verification email:", emailError);
       }
     } else {
       // Automatically verify super admin
@@ -129,10 +136,15 @@ export const signup = async (
         provider: newUser.provider,
         lastLogin: newUser.lastLogin,
         createdAt: newUser.createdAt,
-      } as any,
+        status: newUser.status,
+        avatar: newUser.avatar,
+        security: newUser.security,
+        moderation: newUser.moderation,
+      } as Partial<IUser>,
       token,
     });
   } catch (error) {
+    console.error("Signup error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -160,7 +172,7 @@ export const login = async (
     }
 
     // Check if user uses credentials provider
-    if (user.provider !== "credentials") {
+    if (user.provider !== AuthProvider.CREDENTIALS) {
       res.status(400).json({
         message:
           "This account uses OAuth authentication. Please use the appropriate login method.",
@@ -189,8 +201,12 @@ export const login = async (
       return;
     }
 
-    // Update last login
+    // Update last login and security tracking
     user.lastLogin = new Date();
+    if (!user.security) {
+      user.security = {};
+    }
+    user.security.lastLoginAt = new Date();
     await user.save();
 
     // Generate JWT token
@@ -209,19 +225,42 @@ export const login = async (
         provider: user.provider,
         avatar: user.avatar,
         lastLogin: user.lastLogin,
-      } as unknown as IUser,
+        status: user.status,
+        security: user.security,
+        moderation: user.moderation,
+      } as Partial<IUser>,
       token,
     });
   } catch (error) {
+    console.error("Login error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
+    // If we have user info from middleware, update logout timestamp
+    const userId = (req as any).userId;
+    if (userId) {
+      try {
+        const user = await User.findById(userId);
+        if (user) {
+          if (!user.security) {
+            user.security = {};
+          }
+          user.security.lastLoggedOut = new Date();
+          await user.save();
+        }
+      } catch (updateError) {
+        // Don't fail logout if we can't update timestamp
+        console.error("Failed to update logout timestamp:", updateError);
+      }
+    }
+
     res.clearCookie("token");
     res.status(200).json({ message: "Logout successful" });
   } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -264,9 +303,12 @@ export const verifyEmail = async (
         name: user.name,
         email: user.email,
         isVerified: user.isVerified,
-      } as any,
+        systemRole: user.systemRole,
+        status: user.status,
+      } as Partial<IUser>,
     });
   } catch (error) {
+    console.error("Email verification error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -301,7 +343,7 @@ export const resendVerification = async (
     }
 
     // Check if user is credential-based (not OAuth)
-    if (user.provider !== "credentials") {
+    if (user.provider !== AuthProvider.CREDENTIALS) {
       res
         .status(400)
         .json({ message: "This account doesn't require email verification" });
@@ -322,6 +364,7 @@ export const resendVerification = async (
         html: getVerificationEmailTemplate(user.name, verificationToken),
       });
     } catch (emailError) {
+      console.error("Failed to send verification email:", emailError);
       res.status(500).json({ message: "Failed to send verification email" });
       return;
     }
@@ -330,6 +373,7 @@ export const resendVerification = async (
       message: "Verification email sent successfully",
     });
   } catch (error) {
+    console.error("Resend verification error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -355,7 +399,7 @@ export const forgotPassword = async (
     }
 
     // Check if user uses OAuth (no password to reset)
-    if (user.provider !== "credentials") {
+    if (user.provider !== AuthProvider.CREDENTIALS) {
       res.status(400).json({
         message:
           "This account uses OAuth authentication and doesn't have a password to reset",
@@ -377,6 +421,7 @@ export const forgotPassword = async (
         html: getResetPasswordEmailTemplate(user.name, resetToken),
       });
     } catch (emailError) {
+      console.error("Failed to send reset email:", emailError);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
@@ -389,6 +434,7 @@ export const forgotPassword = async (
       message: "Password reset link sent to your email",
     });
   } catch (error) {
+    console.error("Forgot password error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -423,17 +469,25 @@ export const resetPassword = async (
       return;
     }
 
-    // Update password
+    // Update password and security tracking
     const hashedPassword = await bcrypt.hash(password, 12);
     user.password = hashedPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+
+    // Update security tracking
+    if (!user.security) {
+      user.security = {};
+    }
+    user.security.passwordChangedAt = new Date();
+
     await user.save();
 
     res.status(200).json({
       message: "Password reset successful",
     });
   } catch (error) {
+    console.error("Reset password error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
