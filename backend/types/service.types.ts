@@ -12,8 +12,9 @@ import { Category } from "./category.types";
 export interface Service extends BaseEntity, SoftDeletable {
   title: string;
   description: string;
+  priceDescription?: string;
+  priceBasedOnServiceType: boolean;
   categoryId: Types.ObjectId;
-
   images: FileReference[];
 
   isPopular: boolean;

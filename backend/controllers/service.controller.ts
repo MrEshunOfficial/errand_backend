@@ -2,199 +2,274 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { ServiceModel } from "../models/service.model";
+import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils";
 import { ServiceStatus } from "../types";
 
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    role: string;
-  };
-}
-
 export class ServiceController {
-  // Get all services with filtering and pagination
+  // Helper methods
+  private static handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
+    console.error(`${message}:`, error);
+    
+    if (error instanceof Error && error.name === "ValidationError") {
+      res.status(400).json({
+        success: false,
+        message: "Validation error",
+        error: error.message,
+      });
+      return;
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      message,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+
+  private static validateObjectId(id: string): boolean {
+    return Types.ObjectId.isValid(id);
+  }
+
+  private static getPaginationParams(query: any) {
+    const page = parseInt(query.page as string) || 1;
+    const limit = parseInt(query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
+  }
+
+  private static buildPaginationResponse(page: number, limit: number, total: number) {
+    const totalPages = Math.ceil(total / limit);
+    return {
+      currentPage: page,
+      totalPages,
+      totalItems: total,
+      itemsPerPage: limit,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
+  private static buildPriceFilter(minPrice?: string, maxPrice?: string) {
+    if (!minPrice && !maxPrice) return null;
+
+    const priceConditions: any[] = [];
+    const min = minPrice ? Number(minPrice) : null;
+    const max = maxPrice ? Number(maxPrice) : null;
+
+    if (min && max) {
+      priceConditions.push(
+        { basePrice: { $gte: min, $lte: max } },
+        { $and: [{ "priceRange.min": { $lte: max } }, { "priceRange.max": { $gte: min } }] }
+      );
+    } else if (min) {
+      priceConditions.push(
+        { basePrice: { $gte: min } },
+        { "priceRange.max": { $gte: min } }
+      );
+    } else if (max) {
+      priceConditions.push(
+        { basePrice: { $lte: max } },
+        { "priceRange.min": { $lte: max } }
+      );
+    }
+
+    return priceConditions.length > 0 ? { $or: priceConditions } : null;
+  }
+
+  private static validatePricingData(serviceData: any): string | null {
+    if (serviceData.priceBasedOnServiceType === false) {
+      if (!serviceData.basePrice && !serviceData.priceRange) {
+        return "When pricing is not based on service, either the base price or price range must be provided";
+      }
+      if (serviceData.basePrice && serviceData.priceRange) {
+        return "Cannot have both base price and price range";
+      }
+      if (serviceData.priceRange) {
+        const { min, max } = serviceData.priceRange;
+        if (!min || !max || min >= max) {
+          return "Invalid price range: min must be less than max";
+        }
+      }
+    }
+    return null;
+  }
+
+  private static buildServiceFilter(query: any, baseFilter: any = {}) {
+    const filter = { ...baseFilter, isDeleted: false };
+    const {
+      category, status, isPopular, tags, minPrice, maxPrice, search,
+      priceBasedOnServiceType
+    } = query;
+
+    if (category) filter.categoryId = category;
+    if (status) filter.status = status;
+    if (isPopular !== undefined) filter.isPopular = isPopular === "true";
+    if (tags) {
+      const tagArray = Array.isArray(tags) ? tags : [tags];
+      filter.tags = { $in: tagArray };
+    }
+    if (priceBasedOnServiceType !== undefined) {
+      filter.priceBasedOnServiceType = priceBasedOnServiceType === "true";
+    }
+    if (search) {
+      filter.$text = { $search: search as string };
+    }
+
+    // Price filtering
+    if (minPrice || maxPrice) {
+      filter.priceBasedOnServiceType = false;
+      const priceFilter = this.buildPriceFilter(minPrice, maxPrice);
+      if (priceFilter) Object.assign(filter, priceFilter);
+    }
+
+    return filter;
+  }
+
+  private static async paginatedQuery(
+    query: any,
+    filter: any,
+    populate: string[] = ["category", "submittedBy"],
+    additionalPopulate: string[] = []
+  ) {
+    const { page, limit, skip } = this.getPaginationParams(query);
+    const { sortBy = "createdAt", sortOrder = "desc" } = query;
+    
+    const sortOptions: any = {};
+    sortOptions[sortBy as string] = sortOrder === "asc" ? 1 : -1;
+
+    let queryBuilder = ServiceModel.find(filter);
+    
+    [...populate, ...additionalPopulate].forEach(field => {
+      if (field === "category") queryBuilder = queryBuilder.populate("category", "name slug");
+      else if (field === "submittedBy") queryBuilder = queryBuilder.populate("submittedBy", "name email");
+      else if (field === "approvedBy") queryBuilder = queryBuilder.populate("approvedBy", "name email");
+      else if (field === "rejectedBy") queryBuilder = queryBuilder.populate("rejectedBy", "name email");
+    });
+
+    const [data, total] = await Promise.all([
+      queryBuilder.sort(sortOptions).skip(skip).limit(limit).lean(),
+      ServiceModel.countDocuments(filter)
+    ]);
+
+    return {
+      data,
+      pagination: this.buildPaginationResponse(page, limit, total),
+      total
+    };
+  }
+
+  // Main controller methods
   static async getAllServices(req: Request, res: Response): Promise<void> {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const skip = (page - 1) * limit;
-
-      const {
-        category,
-        status,
-        isPopular,
-        tags,
-        minPrice,
-        maxPrice,
-        search,
-        sortBy = "createdAt",
-        sortOrder = "desc",
-      } = req.query;
-
-      // Build filter object
-      const filter: any = { isDeleted: false };
-
-      if (category) filter.categoryId = category;
-      if (status) filter.status = status;
-      if (isPopular !== undefined) filter.isPopular = isPopular === "true";
-      if (tags) {
-        const tagArray = Array.isArray(tags) ? tags : [tags];
-        filter.tags = { $in: tagArray };
-      }
-
-      // Price filtering
-      if (minPrice || maxPrice) {
-        const priceFilter: any = {};
-        if (minPrice) {
-          priceFilter.$or = [
-            { basePrice: { $gte: Number(minPrice) } },
-            { "priceRange.min": { $gte: Number(minPrice) } },
-          ];
-        }
-        if (maxPrice) {
-          if (!priceFilter.$or) priceFilter.$or = [];
-          priceFilter.$or.push(
-            { basePrice: { $lte: Number(maxPrice) } },
-            { "priceRange.max": { $lte: Number(maxPrice) } }
-          );
-        }
-        Object.assign(filter, priceFilter);
-      }
-
-      // Text search
-      if (search) {
-        filter.$text = { $search: search as string };
-      }
-
-      // Sort options
-      const sortOptions: any = {};
-      sortOptions[sortBy as string] = sortOrder === "asc" ? 1 : -1;
-
-      const services = await ServiceModel.find(filter)
-        .populate("category", "name slug")
-        .populate("submittedBy", "name email")
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(limit)
-        .lean();
-
-      const total = await ServiceModel.countDocuments(filter);
-      const totalPages = Math.ceil(total / limit);
+      const filter = this.buildServiceFilter(req.query);
+      const result = await this.paginatedQuery(req.query, filter);
 
       res.status(200).json({
         success: true,
-        data: services,
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalItems: total,
-          itemsPerPage: limit,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
+        ...result
       });
     } catch (error) {
-      console.error("Error fetching services:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching services",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching services");
     }
   }
 
-  // Get service by ID
+  static async getUserServices(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user?.id) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+
+      const { includeDeleted = "false" } = req.query;
+      const baseFilter = {
+        submittedBy: new Types.ObjectId(req.user.id),
+        ...(includeDeleted !== "true" ? { isDeleted: false } : {}),
+      };
+
+      if (includeDeleted !== "true") {
+        baseFilter.isDeleted = false;
+      } else {
+        delete baseFilter.isDeleted; // Allow deleted services
+      }
+
+      const filter = this.buildServiceFilter(req.query, baseFilter);
+      const result = await this.paginatedQuery(req.query, filter, [], ["approvedBy", "rejectedBy"]);
+
+      // Get status counts
+      const statusCounts = await ServiceModel.aggregate([
+        { $match: { submittedBy: new Types.ObjectId(req.user.id), ...(includeDeleted !== "true" && { isDeleted: false }) } },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]);
+
+      const statusSummary = statusCounts.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {} as Record<string, number>);
+
+      res.status(200).json({
+        success: true,
+        ...result,
+        summary: {
+          statusCounts: statusSummary,
+          totalServices: result.total,
+        },
+      });
+    } catch (error) {
+      this.handleError(res, error, "Error fetching user services");
+    }
+  }
+  
+
   static async getServiceById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
+      if (!this.validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid service ID" });
         return;
       }
 
-      const service = await ServiceModel.findOne({
-        _id: id,
-        isDeleted: false,
-      })
+      const service = await ServiceModel.findOne({ _id: id, isDeleted: false })
         .populate("category", "name slug description")
         .populate("submittedBy", "name email")
         .populate("approvedBy", "name email")
         .populate("rejectedBy", "name email");
 
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
-      res.status(200).json({
-        success: true,
-        data: service,
-      });
+      res.status(200).json({ success: true, data: service });
     } catch (error) {
-      console.error("Error fetching service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching service");
     }
   }
 
-  // Get service by slug
   static async getServiceBySlug(req: Request, res: Response): Promise<void> {
     try {
       const { slug } = req.params;
-
       const service = await ServiceModel.findBySlug(slug);
 
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
-      res.status(200).json({
-        success: true,
-        data: service,
-      });
+      res.status(200).json({ success: true, data: service });
     } catch (error) {
-      console.error("Error fetching service by slug:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching service by slug");
     }
   }
 
-  // Create new service
-  static async createService(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async createService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const serviceData = req.body;
 
-      // Add submittedBy from authenticated user
-      if (req.user) {
-        serviceData.submittedBy = req.user.id;
-      }
+      if (req.user) serviceData.submittedBy = req.user.id;
 
       // Validate required fields
-      if (
-        !serviceData.title ||
-        !serviceData.description ||
-        !serviceData.categoryId
-      ) {
+      if (!serviceData.title || !serviceData.description || !serviceData.categoryId) {
         res.status(400).json({
           success: false,
           message: "Title, description, and categoryId are required",
@@ -202,10 +277,22 @@ export class ServiceController {
         return;
       }
 
+      // Validate pricing logic
+      const pricingError = this.validatePricingData(serviceData);
+      if (pricingError) {
+        res.status(400).json({ success: false, message: pricingError });
+        return;
+      }
+
+      // Clear pricing fields if priceBasedOnServiceType is true
+      if (serviceData.priceBasedOnServiceType === true) {
+        serviceData.basePrice = undefined;
+        serviceData.priceRange = undefined;
+        serviceData.priceDescription = undefined;
+      }
+
       const service = new ServiceModel(serviceData);
       await service.save();
-
-      // Populate related fields for response
       await service.populate("category", "name slug");
 
       res.status(201).json({
@@ -214,60 +301,52 @@ export class ServiceController {
         data: service,
       });
     } catch (error) {
-      console.error("Error creating service:", error);
-
-      if (error instanceof Error && error.name === "ValidationError") {
-        res.status(400).json({
-          success: false,
-          message: "Validation error",
-          error: error.message,
-        });
-        return;
-      }
-
-      res.status(500).json({
-        success: false,
-        message: "Error creating service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error creating service");
     }
   }
 
-  // Update service
-  static async updateService(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async updateService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const updates = req.body;
 
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
+      if (!this.validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid service ID" });
         return;
       }
 
-      // Remove fields that shouldn't be updated directly
-      delete updates.submittedBy;
-      delete updates.approvedBy;
-      delete updates.approvedAt;
-      delete updates.rejectedBy;
-      delete updates.rejectedAt;
+      // Remove protected fields
+      ["submittedBy", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt"]
+        .forEach(field => delete updates[field]);
+
+      // Validate pricing logic for updates
+      if (updates.hasOwnProperty('priceBasedOnServiceType') && updates.priceBasedOnServiceType === false) {
+        if (!updates.basePrice && !updates.priceRange) {
+          const existingService = await ServiceModel.findOne({ _id: id, isDeleted: false });
+          if (existingService && !existingService.basePrice && !existingService.priceRange) {
+            res.status(400).json({
+              success: false,
+              message: "When setting priceBasedOnServiceType to false, either basePrice or priceRange must be provided",
+            });
+            return;
+          }
+        }
+
+        const pricingError = this.validatePricingData(updates);
+        if (pricingError) {
+          res.status(400).json({ success: false, message: pricingError });
+          return;
+        }
+      }
 
       const service = await ServiceModel.findOneAndUpdate(
         { _id: id, isDeleted: false },
-        { ...updates, lastModifiedBy: req.user?.id },
+        updates,
         { new: true, runValidators: true }
       ).populate("category", "name slug");
 
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
@@ -277,260 +356,125 @@ export class ServiceController {
         data: service,
       });
     } catch (error) {
-      console.error("Error updating service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error updating service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error updating service");
     }
   }
 
-  // Soft delete service
-  static async deleteService(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async deleteService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
+      if (!this.validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid service ID" });
         return;
       }
 
       const service = await ServiceModel.findOne({ _id: id, isDeleted: false });
-
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
-      await service.softDelete(
-        req.user?.id ? new Types.ObjectId(req.user.id) : undefined
-      );
-
-      res.status(200).json({
-        success: true,
-        message: "Service deleted successfully",
-      });
+      await service.softDelete(req.user?.id ? new Types.ObjectId(req.user.id) : undefined);
+      res.status(200).json({ success: true, message: "Service deleted successfully" });
     } catch (error) {
-      console.error("Error deleting service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error deleting service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error deleting service");
     }
   }
 
-  // Restore deleted service
-  static async restoreService(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async restoreService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
+      if (!this.validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid service ID" });
         return;
       }
 
       const service = await ServiceModel.findOne({ _id: id, isDeleted: true });
-
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Deleted service not found",
-        });
+        res.status(404).json({ success: false, message: "Deleted service not found" });
         return;
       }
 
       await service.restore();
-
-      res.status(200).json({
-        success: true,
-        message: "Service restored successfully",
-        data: service,
-      });
+      res.status(200).json({ success: true, message: "Service restored successfully", data: service });
     } catch (error) {
-      console.error("Error restoring service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error restoring service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error restoring service");
     }
   }
 
-  // Approve service
-  static async approveService(
+  private static async performServiceAction(
     req: AuthenticatedRequest,
-    res: Response
+    res: Response,
+    action: 'approve' | 'reject',
+    actionMessage: string
   ): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
+      if (!this.validateObjectId(id) || !req.user?.id) {
         res.status(400).json({
           success: false,
-          message: "Invalid service ID",
-        });
-        return;
-      }
-
-      if (!req.user?.id) {
-        res.status(401).json({
-          success: false,
-          message: "User authentication required",
+          message: !this.validateObjectId(id) ? "Invalid service ID" : "User authentication required",
         });
         return;
       }
 
       const service = await ServiceModel.findOne({ _id: id, isDeleted: false });
-
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
-      await service.approve(new Types.ObjectId(req.user.id));
+      if (action === 'approve') {
+        await service.approve(new Types.ObjectId(req.user.id));
+      } else {
+        const { reason } = req.body;
+        await service.reject(new Types.ObjectId(req.user.id), reason);
+      }
 
-      res.status(200).json({
-        success: true,
-        message: "Service approved successfully",
-        data: service,
-      });
+      res.status(200).json({ success: true, message: actionMessage, data: service });
     } catch (error) {
-      console.error("Error approving service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error approving service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, `Error ${action}ing service`);
     }
   }
 
-  // Reject service
-  static async rejectService(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
-        return;
-      }
-
-      if (!req.user?.id) {
-        res.status(401).json({
-          success: false,
-          message: "User authentication required",
-        });
-        return;
-      }
-
-      const service = await ServiceModel.findOne({ _id: id, isDeleted: false });
-
-      if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
-        return;
-      }
-
-      await service.reject(new Types.ObjectId(req.user.id), reason);
-
-      res.status(200).json({
-        success: true,
-        message: "Service rejected successfully",
-        data: service,
-      });
-    } catch (error) {
-      console.error("Error rejecting service:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error rejecting service",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+  static async approveService(req: AuthenticatedRequest, res: Response): Promise<void> {
+    return this.performServiceAction(req, res, 'approve', 'Service approved successfully');
   }
 
-  // Get popular services
+  static async rejectService(req: AuthenticatedRequest, res: Response): Promise<void> {
+    return this.performServiceAction(req, res, 'reject', 'Service rejected successfully');
+  }
+
   static async getPopularServices(req: Request, res: Response): Promise<void> {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
-
-      // Execute the query with proper chaining
       const services = await ServiceModel.findPopular().limit(limit);
-
-      res.status(200).json({
-        success: true,
-        data: services,
-      });
+      res.status(200).json({ success: true, data: services });
     } catch (error) {
-      console.error("Error fetching popular services:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching popular services",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching popular services");
     }
   }
 
-  // Toggle popular status
-  static async togglePopular(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async togglePopular(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid service ID",
-        });
+      if (!this.validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid service ID" });
         return;
       }
 
       const service = await ServiceModel.findOne({ _id: id, isDeleted: false });
-
       if (!service) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found",
-        });
+        res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
       const wasPopular = service.isPopular;
-
-      if (service.isPopular) {
-        await service.unmarkPopular();
-      } else {
-        await service.markPopular();
-      }
+      await (service.isPopular ? service.unmarkPopular() : service.markPopular());
 
       res.status(200).json({
         success: true,
@@ -538,110 +482,76 @@ export class ServiceController {
         data: service,
       });
     } catch (error) {
-      console.error("Error toggling popular status:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error toggling popular status",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error toggling popular status");
     }
   }
 
-  // Get services by category
-  static async getServicesByCategory(
-    req: Request,
-    res: Response
-  ): Promise<void> {
+  static async getServicesByCategory(req: Request, res: Response): Promise<void> {
     try {
       const { categoryId } = req.params;
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const skip = (page - 1) * limit;
+      const { page, limit, skip } = this.getPaginationParams(req.query);
 
-      if (!Types.ObjectId.isValid(categoryId)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
+      if (!this.validateObjectId(categoryId)) {
+        res.status(400).json({ success: false, message: "Invalid category ID" });
         return;
       }
 
-      // Execute the query with proper chaining
-      const services = await ServiceModel.findByCategory(
-        new Types.ObjectId(categoryId)
-      )
-        .skip(skip)
-        .limit(limit);
-
-      const total = await ServiceModel.countDocuments({
-        categoryId: new Types.ObjectId(categoryId),
-        status: ServiceStatus.APPROVED,
-        isDeleted: false,
-      });
-
-      const totalPages = Math.ceil(total / limit);
+      const categoryObjectId = new Types.ObjectId(categoryId);
+      const [services, total] = await Promise.all([
+        ServiceModel.findByCategory(categoryObjectId).skip(skip).limit(limit),
+        ServiceModel.countDocuments({
+          categoryId: categoryObjectId,
+          status: ServiceStatus.APPROVED,
+          isDeleted: false,
+        })
+      ]);
 
       res.status(200).json({
         success: true,
         data: services,
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalItems: total,
-          itemsPerPage: limit,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
+        pagination: this.buildPaginationResponse(page, limit, total),
       });
     } catch (error) {
-      console.error("Error fetching services by category:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching services by category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching services by category");
     }
   }
 
-  // Get pending services (for moderation)
   static async getPendingServices(req: Request, res: Response): Promise<void> {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const skip = (page - 1) * limit;
-
-      // Execute the query with proper chaining
-      const services = await ServiceModel.findPendingApproval()
-        .populate("submittedBy", "name email")
-        .skip(skip)
-        .limit(limit);
-
-      const total = await ServiceModel.countDocuments({
-        status: ServiceStatus.PENDING_APPROVAL,
-        isDeleted: false,
-      });
-
-      const totalPages = Math.ceil(total / limit);
+      const { page, limit, skip } = this.getPaginationParams(req.query);
+      
+      const [services, total] = await Promise.all([
+        ServiceModel.findPendingApproval()
+          .populate("submittedBy", "name email")
+          .skip(skip)
+          .limit(limit),
+        ServiceModel.countDocuments({ status: ServiceStatus.PENDING_APPROVAL, isDeleted: false })
+      ]);
 
       res.status(200).json({
         success: true,
         data: services,
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalItems: total,
-          itemsPerPage: limit,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
+        pagination: this.buildPaginationResponse(page, limit, total),
       });
     } catch (error) {
-      console.error("Error fetching pending services:", error);
-      res.status(500).json({
-        success: false,
-        message: "Error fetching pending services",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Error fetching pending services");
+    }
+  }
+
+  static async getServicesWithPricing(req: Request, res: Response): Promise<void> {
+    try {
+      const baseFilter = {
+        priceBasedOnServiceType: false,
+        status: ServiceStatus.APPROVED,
+        isDeleted: false,
+      };
+      
+      const filter = this.buildServiceFilter(req.query, baseFilter);
+      const result = await this.paginatedQuery(req.query, filter);
+
+      res.status(200).json({ success: true, ...result });
+    } catch (error) {
+      this.handleError(res, error, "Error fetching services with pricing");
     }
   }
 }

@@ -1,5 +1,5 @@
 // types/user.types.ts
-import { Types } from "mongoose";
+import { Types, Document } from "mongoose";
 import { Request } from "express";
 import {
   BaseEntity,
@@ -64,6 +64,17 @@ export interface IUser extends BaseEntity, SoftDeletable {
   security: UserSecurity;
   moderation: UserModeration;
   displayName?: string;
+}
+
+// Instance methods interface
+export interface IUserMethods {
+  softDelete(deletedBy?: string): Promise<IUserDocument>;
+  restore(): Promise<IUserDocument>;
+}
+
+// Combined document interface
+export interface IUserDocument extends IUser, IUserMethods, Document {
+  _id: Types.ObjectId;
 }
 
 // Auth-related interfaces

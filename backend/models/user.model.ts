@@ -1,13 +1,7 @@
 // models/user.model.ts
-import mongoose, { Schema } from "mongoose";
-import {
-  AuthProvider,
-  IUser,
-  ModerationStatus,
-  ProfilePicture,
-  SystemRole,
-  UserStatus,
-} from "../types";
+import mongoose, { Schema, Model } from "mongoose";
+import { ProfilePicture, ModerationStatus, IUserDocument, IUser, AuthProvider, SystemRole, UserStatus } from "../types";
+
 
 const profilePictureSchema = new Schema<ProfilePicture>(
   {
@@ -47,7 +41,7 @@ const userModerationSchema = new Schema(
   { _id: false }
 );
 
-const userSchema = new Schema<IUser>(
+const userSchema = new Schema<IUserDocument>(
   {
     // Basic info
     name: {
@@ -274,9 +268,9 @@ userSchema.pre(/^find/, function (this: mongoose.Query<any, any>, next) {
 
 // Instance methods
 userSchema.methods.softDelete = function (
-  this: IUser & mongoose.Document,
+  this: IUserDocument,
   deletedBy?: string
-) {
+): Promise<IUserDocument> {
   this.isDeleted = true;
   this.deletedAt = new Date();
   if (deletedBy) {
@@ -285,11 +279,14 @@ userSchema.methods.softDelete = function (
   return this.save();
 };
 
-userSchema.methods.restore = function (this: IUser & mongoose.Document) {
+userSchema.methods.restore = function (this: IUserDocument): Promise<IUserDocument> {
   this.isDeleted = false;
   this.deletedAt = undefined;
   this.deletedBy = undefined;
   return this.save();
 };
 
-export const User = mongoose.model<IUser>("User", userSchema);
+// Create the model with proper typing
+interface UserModel extends Model<IUserDocument> {}
+
+export const User: UserModel = mongoose.model<IUserDocument>("User", userSchema);

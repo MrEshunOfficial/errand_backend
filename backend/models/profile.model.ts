@@ -78,10 +78,10 @@ export const userLocationSchema = new Schema<UserLocation>(
       type: String,
       required: [true, "Ghana Post GPS is required"],
       trim: true,
-      match: [
-        /^[A-Z]{2}-\d{4}-\d{4}$/,
-        "Ghana Post GPS must be in format XX-0000-0000",
-      ],
+     match: [
+      /^[A-Z]{2}-\d{3}-\d{4}$/,
+      "GhanaPost GPS must be in format XX-000-0000",
+    ],
     },
     nearbyLandmark: {
       type: String,

@@ -102,7 +102,7 @@ const clientProfileSchema = new Schema<
     preferredProviders: [
       {
         type: Schema.Types.ObjectId,
-        ref: "ProviderProfile", // This should match your actual model name
+        ref: "ProviderProfile",
       },
     ],
 

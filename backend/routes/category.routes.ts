@@ -1,6 +1,9 @@
 // routes/category.routes.ts
 import express from "express";
-import { authenticateToken } from "../middleware/auth.middleware";
+import { 
+  authenticateToken, 
+  requireAdmin 
+} from "../middleware/auth.middleware";
 import { CategoryController } from "../controllers/category.controller";
 
 const router = express.Router();
@@ -31,40 +34,54 @@ router.get("/slug/:slug", CategoryController.getCategoryBySlug);
 router.get("/:id", CategoryController.getCategoryById);
 
 // ===================================================================
-// PROTECTED CATEGORY ROUTES - Authentication required
+// ADMIN CATEGORY ROUTES - Admin authentication required
 // ===================================================================
 
-// Create new category
-router.post("/", authenticateToken, CategoryController.createCategory as any);
+// Create new category (admin only)
+router.post(
+  "/", 
+  authenticateToken, 
+  requireAdmin,
+  CategoryController.createCategory as any
+);
 
-// Update category
-router.put("/:id", authenticateToken, CategoryController.updateCategory as any);
+// Update category (admin only)
+router.put(
+  "/:id", 
+  authenticateToken, 
+  requireAdmin,
+  CategoryController.updateCategory as any
+);
 
-// Soft delete category
+// Soft delete category (admin only)
 router.delete(
   "/:id",
   authenticateToken,
+  requireAdmin,
   CategoryController.deleteCategory as any
 );
 
-// Restore deleted category
+// Restore deleted category (admin only)
 router.patch(
   "/:id/restore",
   authenticateToken,
+  requireAdmin,
   CategoryController.restoreCategory as any
 );
 
-// Toggle category active status
+// Toggle category active status (admin only)
 router.patch(
   "/:id/toggle-status",
   authenticateToken,
+  requireAdmin,
   CategoryController.toggleCategoryStatus as any
 );
 
-// Update display order for multiple categories
+// Update display order for multiple categories (admin only)
 router.patch(
   "/display-order",
   authenticateToken,
+  requireAdmin,
   CategoryController.updateDisplayOrder as any
 );
 

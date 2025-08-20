@@ -2,266 +2,261 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { CategoryModel } from "../models/category.model";
+import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils";
 import { ModerationStatus } from "../types";
 
-// Extend Express Request to include user with proper typing
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    userId: string;
-  };
-}
-
 export class CategoryController {
-  // Get all active categories
-  static async getCategories(req: Request, res: Response) {
-    try {
-      const {
-        page = 1,
-        limit = 20,
-        sortBy = "displayOrder",
-        sortOrder = "asc",
-        search,
-        parentId,
-        includeSubcategories = false,
-      } = req.query;
+  // Helper methods
+  private static handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
+    console.error(`${message}:`, error);
+    
+    if (error instanceof Error && error.message.includes("duplicate key")) {
+      res.status(400).json({
+        success: false,
+        message: message.includes("create") ? "Category with this name already exists" : "A category with this name already exists",
+      });
+      return;
+    }
 
-      const skip = (Number(page) - 1) * Number(limit);
-      const sort: any = {};
-      sort[sortBy as string] = sortOrder === "desc" ? -1 : 1;
+    res.status(statusCode).json({
+      success: false,
+      message,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 
-      // Build query
-      const query: any = { isActive: true, isDeleted: false };
+  private static validateObjectId(id: string, fieldName = "ID"): boolean {
+    return Types.ObjectId.isValid(id);
+  }
 
-      if (search) {
-        query.$text = { $search: search as string };
+  private static sendNotFoundResponse(res: Response, message = "Category not found"): void {
+    res.status(404).json({ success: false, message });
+  }
+
+  private static sendBadRequestResponse(res: Response, message: string): void {
+    res.status(400).json({ success: false, message });
+  }
+
+  private static sendSuccessResponse(res: Response, data?: any, message?: string): void {
+    const response: any = { success: true };
+    if (data) response.data = data;
+    if (message) response.message = message;
+    res.status(200).json(response);
+  }
+
+  private static getPaginationParams(query: any) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
+  }
+
+  private static buildPaginationResponse(page: number, limit: number, total: number) {
+    return {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    };
+  }
+
+  private static buildCategoryQuery(query: any): any {
+    const filter: any = { isActive: true, isDeleted: false };
+    const { search, parentId } = query;
+
+    if (search) filter.$text = { $search: search as string };
+    
+    if (parentId && parentId !== "null") {
+      if (!this.validateObjectId(parentId as string)) {
+        throw new Error("Invalid parent category ID");
       }
+      filter.parentCategoryId = new Types.ObjectId(parentId as string);
+    } else if (parentId === null || parentId === "null") {
+      filter.parentCategoryId = null;
+    }
 
-      if (parentId && parentId !== "null") {
-        if (!Types.ObjectId.isValid(parentId as string)) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid parent category ID",
-          });
-        }
-        query.parentCategoryId = new Types.ObjectId(parentId as string);
-      } else if (parentId === null || parentId === "null") {
-        query.parentCategoryId = null;
-      }
+    return filter;
+  }
 
-      const categories = await CategoryModel.find(query)
-        .populate(includeSubcategories === "true" ? "subcategories" : "")
+  private static buildSortOptions(sortBy = "displayOrder", sortOrder = "asc"): any {
+    const sort: any = {};
+    sort[sortBy as string] = sortOrder === "desc" ? -1 : 1;
+    return sort;
+  }
+
+  private static async findCategoryById(id: string, includeDeleted = false): Promise<any> {
+    if (!this.validateObjectId(id)) return null;
+    
+    const filter: any = { _id: id };
+    if (!includeDeleted) filter.isDeleted = { $ne: true };
+    
+    return await CategoryModel.findOne(filter);
+  }
+
+  private static async validateParentCategory(parentCategoryId: string, currentId?: string): Promise<string | null> {
+    if (!parentCategoryId || !this.validateObjectId(parentCategoryId)) {
+      return "Invalid parent category ID";
+    }
+
+    if (currentId && parentCategoryId === currentId) {
+      return "Category cannot be its own parent";
+    }
+
+    const parentCategory = await CategoryModel.findById(parentCategoryId);
+    if (!parentCategory || parentCategory.isDeleted) {
+      return "Parent category not found";
+    }
+
+    return null;
+  }
+
+  private static getUserId(req: AuthenticatedRequest): Types.ObjectId | undefined {
+    return req.user?.id ? new Types.ObjectId(req.user.id) : undefined;
+  }
+
+  // Main controller methods
+  static async getCategories(req: Request, res: Response): Promise<void> {
+  try {
+    // Convert query flag into a proper boolean
+    const includeSubcategories =
+      typeof req.query.includeSubcategories === "string" &&
+      req.query.includeSubcategories === "true";
+
+    const { page, limit, skip } = this.getPaginationParams(req.query);
+    const query = this.buildCategoryQuery(req.query);
+    const sort = this.buildSortOptions(
+      req.query.sortBy as string,
+      req.query.sortOrder as string
+    );
+
+    const [categories, total] = await Promise.all([
+      CategoryModel.find(query)
+        .populate(includeSubcategories ? "subcategories" : "")
         .populate("servicesCount")
         .sort(sort)
         .skip(skip)
-        .limit(Number(limit));
+        .limit(limit),
+      CategoryModel.countDocuments(query),
+    ]);
 
-      const total = await CategoryModel.countDocuments(query);
-
-      res.status(200).json({
-        success: true,
-        data: {
-          categories,
-          pagination: {
-            page: Number(page),
-            limit: Number(limit),
-            total,
-            pages: Math.ceil(total / Number(limit)),
-          },
-        },
-      });
-    } catch (error) {
-      console.error("Error fetching categories:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch categories",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+    this.sendSuccessResponse(res, {
+      categories,
+      pagination: this.buildPaginationResponse(page, limit, total),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Invalid parent")) {
+      this.sendBadRequestResponse(res, error.message);
+      return;
     }
+    this.handleError(res, error, "Failed to fetch categories");
   }
+}
 
-  // Get parent categories only
-  static async getParentCategories(req: Request, res: Response) {
+
+  static async getParentCategories(req: Request, res: Response): Promise<void> {
     try {
-      const { includeSubcategories = false, includeServicesCount = false } =
-        req.query;
+      const { includeSubcategories = false, includeServicesCount = false } = req.query;
 
       let query = CategoryModel.findParentCategories();
-
-      if (includeSubcategories === "true") {
-        query = query.populate("subcategories");
-      }
-
-      if (includeServicesCount === "true") {
-        query = query.populate("servicesCount");
-      }
+      
+      if (includeSubcategories === "true") query = query.populate("subcategories");
+      if (includeServicesCount === "true") query = query.populate("servicesCount");
 
       const categories = await query;
-
-      res.status(200).json({
-        success: true,
-        data: { categories },
-      });
+      this.sendSuccessResponse(res, { categories });
     } catch (error) {
-      console.error("Error fetching parent categories:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch parent categories",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to fetch parent categories");
     }
   }
 
-  // Get subcategories of a parent category
-  static async getSubcategories(req: Request, res: Response) {
+  static async getSubcategories(req: Request, res: Response): Promise<void> {
     try {
       const { parentId } = req.params;
 
-      if (!Types.ObjectId.isValid(parentId)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid parent category ID",
-        });
+      if (!this.validateObjectId(parentId)) {
+        this.sendBadRequestResponse(res, "Invalid parent category ID");
+        return;
       }
 
       const subcategories = await CategoryModel.findSubcategories(
         new Types.ObjectId(parentId)
       ).populate("servicesCount");
 
-      res.status(200).json({
-        success: true,
-        data: { subcategories },
-      });
+      this.sendSuccessResponse(res, { subcategories });
     } catch (error) {
-      console.error("Error fetching subcategories:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch subcategories",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to fetch subcategories");
     }
   }
 
-  // Get category by slug
-  static async getCategoryBySlug(req: Request, res: Response) {
+  private static async getCategoryByIdentifier(
+    req: Request, 
+    res: Response, 
+    identifier: string, 
+    isSlug = false
+  ): Promise<void> {
     try {
-      const { slug } = req.params;
       const { includeSubcategories = false } = req.query;
 
-      let query = CategoryModel.findBySlug(slug);
+      if (!isSlug && !this.validateObjectId(identifier)) {
+        this.sendBadRequestResponse(res, "Invalid category ID");
+        return;
+      }
 
+      const query = isSlug 
+        ? CategoryModel.findBySlug(identifier)
+        : CategoryModel.findById(identifier);
+
+      let categoryQuery = query;
       if (includeSubcategories === "true") {
-        query = query.populate("subcategories");
+        categoryQuery = categoryQuery.populate("subcategories");
       }
 
-      const category = await query.populate("servicesCount");
+      const populateFields = isSlug 
+        ? "servicesCount"
+        : "servicesCount createdBy lastModifiedBy";
 
-      if (!category) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+      const category = await categoryQuery.populate(populateFields);
+
+      if (!category || (!isSlug && category.isDeleted)) {
+        this.sendNotFoundResponse(res);
+        return;
       }
 
-      res.status(200).json({
-        success: true,
-        data: { category },
-      });
+      this.sendSuccessResponse(res, { category });
     } catch (error) {
-      console.error("Error fetching category by slug:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, `Failed to fetch category${isSlug ? ' by slug' : ''}`);
     }
   }
 
-  // Get category by ID
-  static async getCategoryById(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const { includeSubcategories = false } = req.query;
-
-      if (!Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
-      }
-
-      let query = CategoryModel.findById(id);
-
-      if (includeSubcategories === "true") {
-        query = query.populate("subcategories");
-      }
-
-      const category = await query
-        .populate("servicesCount")
-        .populate("createdBy", "name email")
-        .populate("lastModifiedBy", "name email");
-
-      if (!category || category.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: { category },
-      });
-    } catch (error) {
-      console.error("Error fetching category by ID:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to fetch category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+  static async getCategoryBySlug(req: Request, res: Response): Promise<void> {
+    return this.getCategoryByIdentifier(req, res, req.params.slug, true);
   }
 
-  // Create new category
-  static async createCategory(req: AuthenticatedRequest, res: Response) {
+  static async getCategoryById(req: Request, res: Response): Promise<void> {
+    return this.getCategoryByIdentifier(req, res, req.params.id, false);
+  }
+
+  static async createCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const {
-        name,
-        description,
-        image,
-        tags,
-        parentCategoryId,
-        displayOrder,
-        // slug, // Remove this - it will be auto-generated
-        metaDescription,
+        name, description, image, tags, parentCategoryId,
+        displayOrder, metaDescription
       } = req.body;
 
-      // Remove slug existence check since it's auto-generated
-
       // Validate parent category if provided
-      if (parentCategoryId && Types.ObjectId.isValid(parentCategoryId)) {
-        const parentCategory = await CategoryModel.findById(parentCategoryId);
-        if (!parentCategory || parentCategory.isDeleted) {
-          return res.status(400).json({
-            success: false,
-            message: "Parent category not found",
-          });
+      if (parentCategoryId) {
+        const validationError = await this.validateParentCategory(parentCategoryId);
+        if (validationError) {
+          this.sendBadRequestResponse(res, validationError);
+          return;
         }
       }
 
-      const userId = req.user?.id ? new Types.ObjectId(req.user.id) : undefined;
-
+      const userId = this.getUserId(req);
       const categoryData = {
-        name,
-        description,
-        image,
-        tags,
-        parentCategoryId: parentCategoryId
-          ? new Types.ObjectId(parentCategoryId)
-          : null,
+        name, description, image, tags, metaDescription,
+        parentCategoryId: parentCategoryId ? new Types.ObjectId(parentCategoryId) : null,
         displayOrder: displayOrder || 0,
-        // slug will be auto-generated from name
-        metaDescription,
         createdBy: userId,
         lastModifiedBy: userId,
         moderationStatus: ModerationStatus.PENDING,
@@ -276,128 +271,51 @@ export class CategoryController {
         data: { category },
       });
     } catch (error) {
-      console.error("Error creating category:", error);
-
-      if (error instanceof Error && error.message.includes("duplicate key")) {
-        return res.status(400).json({
-          success: false,
-          message: "Category with this name already exists",
-        });
-      }
-
-      res.status(500).json({
-        success: false,
-        message: "Failed to create category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to create category");
     }
   }
 
-  // Update category
-  static async updateCategory(req: AuthenticatedRequest, res: Response) {
+  static async updateCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
 
-      if (!Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
-      }
-
-      const category = await CategoryModel.findById(id);
-      if (!category || category.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+      const category = await this.findCategoryById(id);
+      if (!category) {
+        this.sendNotFoundResponse(res);
+        return;
       }
 
       // Validate parent category if being updated
-      if (
-        updateData.parentCategoryId &&
-        Types.ObjectId.isValid(updateData.parentCategoryId)
-      ) {
-        const parentCategory = await CategoryModel.findById(
-          updateData.parentCategoryId
-        );
-        if (!parentCategory || parentCategory.isDeleted) {
-          return res.status(400).json({
-            success: false,
-            message: "Parent category not found",
-          });
-        }
-
-        // Prevent circular reference
-        if (updateData.parentCategoryId === id) {
-          return res.status(400).json({
-            success: false,
-            message: "Category cannot be its own parent",
-          });
-        }
-      }
-
-      // Convert parentCategoryId to ObjectId if it's a string
       if (updateData.parentCategoryId) {
-        updateData.parentCategoryId = new Types.ObjectId(
-          updateData.parentCategoryId
-        );
+        const validationError = await this.validateParentCategory(updateData.parentCategoryId, id);
+        if (validationError) {
+          this.sendBadRequestResponse(res, validationError);
+          return;
+        }
+        updateData.parentCategoryId = new Types.ObjectId(updateData.parentCategoryId);
       }
 
-      updateData.lastModifiedBy = req.user?.id
-        ? new Types.ObjectId(req.user.id)
-        : undefined;
+      updateData.lastModifiedBy = this.getUserId(req);
 
       const updatedCategory = await CategoryModel.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      )
-        .populate("subcategories")
-        .populate("servicesCount");
+        id, updateData, { new: true, runValidators: true }
+      ).populate("subcategories").populate("servicesCount");
 
-      res.status(200).json({
-        success: true,
-        message: "Category updated successfully",
-        data: { category: updatedCategory },
-      });
+      this.sendSuccessResponse(res, { category: updatedCategory }, "Category updated successfully");
     } catch (error) {
-      console.error("Error updating category:", error);
-
-      if (error instanceof Error && error.message.includes("duplicate key")) {
-        return res.status(400).json({
-          success: false,
-          message: "A category with this name already exists",
-        });
-      }
-
-      res.status(500).json({
-        success: false,
-        message: "Failed to update category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to update category");
     }
   }
 
-  // Soft delete category
-  static async deleteCategory(req: AuthenticatedRequest, res: Response) {
+  static async deleteCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
-      }
-
-      const category = await CategoryModel.findById(id);
-      if (!category || category.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+      const category = await this.findCategoryById(id);
+      if (!category) {
+        this.sendNotFoundResponse(res);
+        return;
       }
 
       // Check if category has active subcategories
@@ -407,177 +325,99 @@ export class CategoryController {
       });
 
       if (subcategoriesCount > 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Cannot delete category with active subcategories",
-        });
+        this.sendBadRequestResponse(res, "Cannot delete category with active subcategories");
+        return;
       }
 
-      const deletedBy = req.user?.id
-        ? new Types.ObjectId(req.user.id)
-        : undefined;
-
-      await category.softDelete(deletedBy);
-
-      res.status(200).json({
-        success: true,
-        message: "Category deleted successfully",
-      });
+      await category.softDelete(this.getUserId(req));
+      this.sendSuccessResponse(res, null, "Category deleted successfully");
     } catch (error) {
-      console.error("Error deleting category:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to delete category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to delete category");
     }
   }
 
-  // Restore deleted category
-  static async restoreCategory(req: AuthenticatedRequest, res: Response) {
+  static async restoreCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
-      }
-
-      const category = await CategoryModel.findById(id);
+      const category = await this.findCategoryById(id, true);
       if (!category) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+        this.sendNotFoundResponse(res);
+        return;
       }
 
       if (!category.isDeleted) {
-        return res.status(400).json({
-          success: false,
-          message: "Category is not deleted",
-        });
+        this.sendBadRequestResponse(res, "Category is not deleted");
+        return;
       }
 
       await category.restore();
-      category.lastModifiedBy = req.user?.id
-        ? new Types.ObjectId(req.user.id)
-        : undefined;
+      category.lastModifiedBy = this.getUserId(req);
       await category.save();
 
-      res.status(200).json({
-        success: true,
-        message: "Category restored successfully",
-        data: { category },
-      });
+      this.sendSuccessResponse(res, { category }, "Category restored successfully");
     } catch (error) {
-      console.error("Error restoring category:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to restore category",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to restore category");
     }
   }
 
-  // Toggle category active status
-  static async toggleCategoryStatus(req: AuthenticatedRequest, res: Response) {
+  static async toggleCategoryStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
-      if (!Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID",
-        });
-      }
-
-      const category = await CategoryModel.findById(id);
-      if (!category || category.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+      const category = await this.findCategoryById(id);
+      if (!category) {
+        this.sendNotFoundResponse(res);
+        return;
       }
 
       category.isActive = !category.isActive;
-      category.lastModifiedBy = req.user?.id
-        ? new Types.ObjectId(req.user.id)
-        : undefined;
+      category.lastModifiedBy = this.getUserId(req);
       await category.save();
 
-      res.status(200).json({
-        success: true,
-        message: `Category ${
-          category.isActive ? "activated" : "deactivated"
-        } successfully`,
-        data: { category },
-      });
+      this.sendSuccessResponse(res, 
+        { category }, 
+        `Category ${category.isActive ? "activated" : "deactivated"} successfully`
+      );
     } catch (error) {
-      console.error("Error toggling category status:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to toggle category status",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to toggle category status");
     }
   }
 
-  // Update display order
-  static async updateDisplayOrder(req: AuthenticatedRequest, res: Response) {
+  static async updateDisplayOrder(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { categories } = req.body; // Array of { id, displayOrder }
+      const { categories } = req.body;
 
       if (!Array.isArray(categories)) {
-        return res.status(400).json({
-          success: false,
-          message: "Categories should be an array",
-        });
+        this.sendBadRequestResponse(res, "Categories should be an array");
+        return;
       }
 
-      const userId = req.user?.id ? new Types.ObjectId(req.user.id) : undefined;
-
+      const userId = this.getUserId(req);
       const updatePromises = categories.map(({ id, displayOrder }) => {
-        if (!Types.ObjectId.isValid(id)) {
+        if (!this.validateObjectId(id)) {
           throw new Error(`Invalid category ID: ${id}`);
         }
-        return CategoryModel.findByIdAndUpdate(
-          id,
-          {
-            displayOrder,
-            lastModifiedBy: userId,
-          },
-          { new: true }
-        );
+        return CategoryModel.findByIdAndUpdate(id, {
+          displayOrder,
+          lastModifiedBy: userId,
+        }, { new: true });
       });
 
       await Promise.all(updatePromises);
-
-      res.status(200).json({
-        success: true,
-        message: "Display order updated successfully",
-      });
+      this.sendSuccessResponse(res, null, "Display order updated successfully");
     } catch (error) {
-      console.error("Error updating display order:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to update display order",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to update display order");
     }
   }
 
-  // Search categories
-  static async searchCategories(req: Request, res: Response) {
+  static async searchCategories(req: Request, res: Response): Promise<void> {
     try {
       const { q, limit = 20, includeInactive = false, parentId } = req.query;
 
       if (!q || typeof q !== "string") {
-        return res.status(400).json({
-          success: false,
-          message: "Search query is required",
-        });
+        this.sendBadRequestResponse(res, "Search query is required");
+        return;
       }
 
       const query: any = {
@@ -585,39 +425,25 @@ export class CategoryController {
         isDeleted: false,
       };
 
-      if (includeInactive !== "true") {
-        query.isActive = true;
-      }
+      if (includeInactive !== "true") query.isActive = true;
 
       if (parentId && parentId !== "null") {
-        if (!Types.ObjectId.isValid(parentId as string)) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid parent category ID",
-          });
+        if (!this.validateObjectId(parentId as string)) {
+          this.sendBadRequestResponse(res, "Invalid parent category ID");
+          return;
         }
         query.parentCategoryId = new Types.ObjectId(parentId as string);
       }
 
       const categories = await CategoryModel.find(query)
-        .select(
-          "name description slug image displayOrder isActive parentCategoryId"
-        )
+        .select("name description slug image displayOrder isActive parentCategoryId")
         .populate("servicesCount")
         .limit(Number(limit))
         .sort({ score: { $meta: "textScore" } });
 
-      res.status(200).json({
-        success: true,
-        data: { categories },
-      });
+      this.sendSuccessResponse(res, { categories });
     } catch (error) {
-      console.error("Error searching categories:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to search categories",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+      this.handleError(res, error, "Failed to search categories");
     }
   }
 }

@@ -8,6 +8,7 @@ import categoryRoutes from "./routes/category.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import { connectDB } from "./database/connectDB";
 import authRoutes from "./routes/auth.routes.js";
+import warningRoutes from "./routes/warning.routes.js";
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ app.use(
       process.env.NODE_ENV === "production"
         ? process.env.CLIENT_URL
         : "http://localhost:3000",
-    credentials: true, // Allow cookies to be sent
+    credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -39,6 +40,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api/warnings", warningRoutes);
 
 // Static file serving
 app.use("/uploads", express.static("uploads"));
@@ -58,5 +60,5 @@ app.use(
 
 app.listen(PORT, () => {
   connectDB();
-  console.log("Server is running on port:", PORT);
+  console.log("Server is running on port: ", PORT);
 });

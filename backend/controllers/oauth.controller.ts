@@ -11,7 +11,7 @@ import {
   AuthenticatedRequest,
 } from "../types/user.types";
 import { verifyGoogleToken, verifyAppleToken } from "../utils/oath.utils";
-import { SystemRole, AuthProvider } from "../types";
+import { AuthProvider, SystemRole } from "../types";
 
 // Helper function to check if email is super admin
 const isSuperAdminEmail = (email: string): boolean => {

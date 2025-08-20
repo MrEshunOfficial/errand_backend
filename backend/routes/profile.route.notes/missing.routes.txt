@@ -1,0 +1,213 @@
+// Additional routes to add to your profile.routes.ts file
+
+// ===================================================================
+// MISSING PROFILE MANAGEMENT ROUTES
+// ===================================================================
+
+// Profile verification routes
+router.patch("/verification-status", requireAdmin, updateVerificationStatus as any);
+router.patch("/moderation-status", requireAdmin, updateModerationStatus as any);
+router.post("/verify", initiateProfileVerification as any);
+
+// Profile warnings and moderation
+router.post("/warnings", requireAdmin, addProfileWarning as any);
+router.get("/warnings", getProfileWarnings as any);
+router.delete("/warnings/:warningId", requireAdmin, removeProfileWarning as any);
+router.patch("/warnings/clear", requireAdmin, clearProfileWarnings as any);
+
+// Profile completeness calculation
+router.patch("/recalculate-completeness", recalculateProfileCompleteness as any);
+
+// ===================================================================
+// ADMIN PROFILE MANAGEMENT ROUTES
+// ===================================================================
+
+// Admin routes for managing all profiles
+router.get("/all", requireAdmin, getAllProfiles as any);
+router.get("/by-status/:status", requireAdmin, getProfilesByStatus as any);
+router.get("/by-verification/:status", requireAdmin, getProfilesByVerificationStatus as any);
+router.get("/by-moderation/:status", requireAdmin, getProfilesByModerationStatus as any);
+router.get("/incomplete", requireAdmin, getIncompleteProfiles as any);
+router.get("/marketplace-active", requireAdmin, getMarketplaceActiveProfiles as any);
+
+// Profile statistics and analytics
+router.get("/statistics", requireAdmin, getProfileStatistics as any);
+router.get("/analytics/completeness", requireAdmin, getCompletenessAnalytics as any);
+router.get("/analytics/verification", requireAdmin, getVerificationAnalytics as any);
+
+// ===================================================================
+// PROFILE SEARCH AND DISCOVERY ROUTES
+// ===================================================================
+
+// Search profiles (admin only for privacy)
+router.post("/search", requireAdmin, searchProfiles as any);
+router.get("/search/suggestions", requireAdmin, getProfileSearchSuggestions as any);
+
+// Profile filtering
+router.post("/filter", requireAdmin, filterProfiles as any);
+router.get("/filter/options", requireAdmin, getFilterOptions as any);
+
+// ===================================================================
+// PROFILE HISTORY AND AUDIT ROUTES
+// ===================================================================
+
+// Profile change history
+router.get("/history", getProfileHistory as any);
+router.get("/history/:profileId", requireAdmin, getProfileHistoryById as any);
+
+// Profile audit trails
+router.get("/audit-trail", requireAdmin, getProfileAuditTrail as any);
+router.post("/audit-trail", requireAdmin, addAuditTrailEntry as any);
+
+// ===================================================================
+// PROFILE BACKUP AND EXPORT ROUTES
+// ===================================================================
+
+// Export profile data
+router.get("/export", exportProfileData as any);
+router.post("/export/bulk", requireAdmin, bulkExportProfiles as any);
+
+// Import profile data (admin only)
+router.post("/import", requireAdmin, importProfileData as any);
+
+// ===================================================================
+// PROFILE VALIDATION AND HEALTH CHECKS
+// ===================================================================
+
+// Profile validation
+router.post("/validate", validateProfileData as any);
+router.get("/health-check", profileHealthCheck as any);
+router.post("/fix-issues", fixProfileIssues as any);
+
+// ===================================================================
+// PROFILE NOTIFICATIONS AND COMMUNICATION
+// ===================================================================
+
+// Profile-related notifications
+router.get("/notifications", getProfileNotifications as any);
+router.patch("/notifications/:notificationId/read", markProfileNotificationAsRead as any);
+router.delete("/notifications/:notificationId", deleteProfileNotification as any);
+
+// Communication preferences
+router.get("/communication-preferences", getCommunicationPreferences as any);
+router.patch("/communication-preferences", updateCommunicationPreferences as any);
+
+// ===================================================================
+// PROFILE REPORTS AND COMPLAINTS
+// ===================================================================
+
+// Profile reporting
+router.post("/report", reportProfile as any);
+router.get("/reports", requireAdmin, getProfileReports as any);
+router.patch("/reports/:reportId/resolve", requireAdmin, resolveProfileReport as any);
+
+// ===================================================================
+// PROFILE RELATIONSHIPS AND CONNECTIONS
+// ===================================================================
+
+// Profile connections (if applicable to your system)
+router.get("/connections", getProfileConnections as any);
+router.post("/connections/request", sendConnectionRequest as any);
+router.patch("/connections/:connectionId/accept", acceptConnectionRequest as any);
+router.delete("/connections/:connectionId", removeConnection as any);
+
+// ===================================================================
+// PROFILE PRIVACY AND SECURITY
+// ===================================================================
+
+// Privacy settings
+router.get("/privacy-settings", getPrivacySettings as any);
+router.patch("/privacy-settings", updatePrivacySettings as any);
+
+// Profile visibility
+router.patch("/visibility", updateProfileVisibility as any);
+router.get("/visibility-options", getVisibilityOptions as any);
+
+// ===================================================================
+// PROFILE MIGRATION AND MAINTENANCE
+// ===================================================================
+
+// Profile migration utilities (admin only)
+router.post("/migrate", requireSuperAdmin, migrateProfile as any);
+router.post("/migrate/bulk", requireSuperAdmin, bulkMigrateProfiles as any);
+
+// Profile maintenance
+router.post("/maintenance/cleanup", requireSuperAdmin, cleanupProfiles as any);
+router.post("/maintenance/archive", requireAdmin, archiveInactiveProfiles as any);
+
+// ===================================================================
+// MISSING CONTROLLER FUNCTIONS THAT NEED TO BE IMPLEMENTED
+// ===================================================================
+
+/*
+These controller functions need to be added to profile.controller.ts:
+
+1. Profile Verification & Moderation:
+   - updateVerificationStatus
+   - updateModerationStatus
+   - initiateProfileVerification
+   - addProfileWarning
+   - getProfileWarnings
+   - removeProfileWarning
+   - clearProfileWarnings
+
+2. Profile Management:
+   - getAllProfiles
+   - getProfilesByStatus
+   - getProfilesByVerificationStatus
+   - getProfilesByModerationStatus
+   - getIncompleteProfiles
+   - getMarketplaceActiveProfiles
+   - recalculateProfileCompleteness
+
+3. Analytics & Statistics:
+   - getProfileStatistics
+   - getCompletenessAnalytics
+   - getVerificationAnalytics
+
+4. Search & Discovery:
+   - searchProfiles
+   - getProfileSearchSuggestions
+   - filterProfiles
+   - getFilterOptions
+
+5. History & Audit:
+   - getProfileHistory
+   - getProfileHistoryById
+   - getProfileAuditTrail
+   - addAuditTrailEntry
+
+6. Data Export/Import:
+   - exportProfileData
+   - bulkExportProfiles
+   - importProfileData
+
+7. Validation & Health:
+   - validateProfileData
+   - profileHealthCheck
+   - fixProfileIssues
+
+8. Notifications:
+   - getProfileNotifications
+   - markProfileNotificationAsRead
+   - deleteProfileNotification
+   - getCommunicationPreferences
+   - updateCommunicationPreferences
+
+9. Reporting:
+   - reportProfile
+   - getProfileReports
+   - resolveProfileReport
+
+10. Privacy & Security:
+    - getPrivacySettings
+    - updatePrivacySettings
+    - updateProfileVisibility
+    - getVisibilityOptions
+
+11. Maintenance:
+    - migrateProfile
+    - bulkMigrateProfiles
+    - cleanupProfiles
+    - archiveInactiveProfiles
+*/

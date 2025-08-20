@@ -1,7 +1,7 @@
 // models/Category.ts - Fixed version
 import { Schema, model, Model, Document, Types } from "mongoose";
 import { ModerationStatus } from "../types/base.types";
-import { Category } from "../types";
+import { Category } from "../types/express";
 
 const fileReferenceSchema = new Schema(
   {

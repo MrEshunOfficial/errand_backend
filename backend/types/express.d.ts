@@ -1,15 +1,12 @@
 // types/express/index.d.ts
-import { Types } from "mongoose";
+
+import { IUser } from ".";
 
 declare global {
   namespace Express {
-    interface UserPayload {
-      id?: string | Types.ObjectId;
-      userId?: string | Types.ObjectId;
-    }
-
     interface Request {
-      user?: UserPayload;
+      user?: IUser;
+      userId?: string;
     }
   }
 }

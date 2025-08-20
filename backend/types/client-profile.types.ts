@@ -17,8 +17,8 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
   riskFactors?: string[];
 
   // Preferences
-  preferredServices: Types.ObjectId[]; // References Service._id
-  preferredProviders: Types.ObjectId[]; // References ProviderProfile._id
+  preferredServices: Types.ObjectId[];
+  preferredProviders: Types.ObjectId[];
 
   // Service History and Behavior
   totalBookings: number;

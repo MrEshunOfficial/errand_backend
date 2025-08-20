@@ -25,9 +25,7 @@ interface IServiceStatics {
 }
 
 // Combined interface for the model
-interface IServiceModel
-  extends Model<Service, {}, IServiceMethods>,
-    IServiceStatics {}
+interface IServiceModel extends Model<Service, {}, IServiceMethods>, IServiceStatics {}
 
 // Document type that includes both the Service interface and instance methods
 export type ServiceDocument = Document<unknown, {}, Service> &
@@ -118,23 +116,49 @@ const serviceSchema = new Schema<Service, IServiceModel, IServiceMethods>(
       min: 0,
       validate: {
         validator: function (this: Service, price: number) {
-          // Either basePrice or priceRange should be provided, not both
+          // Only allow basePrice when priceBasedOnServiceType is false
+          if (price && this.priceBasedOnServiceType !== false) {
+            return false;
+          }
+          // Cannot have both basePrice and priceRange
           return !(price && this.priceRange);
         },
-        message: "Cannot have both basePrice and priceRange",
+        message: "basePrice can only be set when priceBasedOnServiceType is false, and cannot coexist with priceRange",
       },
     },
     priceRange: {
       type: priceRangeSchema,
       validate: {
         validator: function (this: Service, range: any) {
-          if (range && this.basePrice) return false; // Cannot have both
-          if (range && range.min >= range.max) return false; // Min must be less than max
+          // Only allow priceRange when priceBasedOnServiceType is false
+          if (range && this.priceBasedOnServiceType !== false) {
+            return false;
+          }
+          // Cannot have both basePrice and priceRange
+          if (range && this.basePrice) return false;
+          // Min must be less than max
+          if (range && range.min >= range.max) return false;
           return true;
         },
-        message:
-          "Invalid price range or cannot have both basePrice and priceRange",
+        message: "priceRange can only be set when priceBasedOnServiceType is false, and cannot coexist with basePrice",
       },
+    },
+    priceDescription: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: 250,
+      validate: {
+        validator: function (this: Service, description: string) {
+          // Only allow priceDescription when priceBasedOnServiceType is false
+          return !(description && this.priceBasedOnServiceType !== false);
+        },
+        message: "priceDescription can only be set when priceBasedOnServiceType is false",
+      },
+    },
+    priceBasedOnServiceType: {
+      type: Boolean,
+      default: true,
     },
     slug: {
       type: String,
@@ -207,10 +231,12 @@ serviceSchema.index({ basePrice: 1 });
 serviceSchema.index({ "priceRange.min": 1, "priceRange.max": 1 });
 serviceSchema.index({ submittedBy: 1 });
 serviceSchema.index({ createdAt: -1 });
+serviceSchema.index({ priceBasedOnServiceType: 1 }); // Add index for price-based filtering
 
 // Compound indexes for common queries
 serviceSchema.index({ categoryId: 1, status: 1, isPopular: -1 });
 serviceSchema.index({ status: 1, isDeleted: 1, createdAt: -1 });
+serviceSchema.index({ priceBasedOnServiceType: 1, status: 1, isDeleted: 1 }); // Price-based compound index
 
 // Pre-save middleware to generate slug if not provided
 serviceSchema.pre("save", function (next) {
@@ -220,6 +246,17 @@ serviceSchema.pre("save", function (next) {
       .replace(/[^a-z0-9\s]/g, "")
       .replace(/\s+/g, "-")
       .trim();
+  }
+  next();
+});
+
+// Pre-save middleware to clear pricing fields when priceBasedOnServiceType is true
+serviceSchema.pre("save", function (next) {
+  if (this.priceBasedOnServiceType === true) {
+    // Clear all pricing fields when price is based on service type
+    this.basePrice = undefined;
+    this.priceRange = undefined;
+    this.priceDescription = undefined;
   }
   next();
 });
@@ -302,8 +339,8 @@ serviceSchema.methods.softDelete = function (deletedBy?: Types.ObjectId) {
 
 serviceSchema.methods.restore = function () {
   this.isDeleted = false;
-  this.deletedAt = undefined; // Use undefined instead of null
-  this.deletedBy = undefined; // Use undefined instead of null
+  this.deletedAt = undefined;
+  this.deletedBy = undefined;
   return this.save();
 };
 

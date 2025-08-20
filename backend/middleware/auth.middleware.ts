@@ -3,13 +3,9 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.model";
 
-interface AuthRequest extends Request {
-  userId?: string;
-  user?: any;
-}
-
+// Remove the custom AuthRequest interface - use the global Express.Request instead
 export const authenticateToken = async (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -17,10 +13,9 @@ export const authenticateToken = async (
     // Check if cookies object exists
     console.log("Cookies object:", req.cookies);
     console.log("Authorization header:", req.headers.authorization);
-
+    
     // Get token from cookies (if cookies exist) or Authorization header
     let token: string | undefined;
-
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
     } else if (req.headers.authorization) {
@@ -29,18 +24,18 @@ export const authenticateToken = async (
         token = authHeader.split(" ")[1];
       }
     }
-
+    
     if (!token) {
       res.status(401).json({ message: "Access token required" });
       return;
     }
-
+    
     // Verify JWT secret exists
     if (!process.env.JWT_SECRET) {
       res.status(500).json({ message: "Internal server error" });
       return;
     }
-
+    
     // Verify token
     let decoded: { userId: string };
     try {
@@ -53,18 +48,19 @@ export const authenticateToken = async (
       });
       return;
     }
-
+    
     // Find user
     const user = await User.findById(decoded.userId);
     console.log("User found:", user ? "Yes" : "No");
-
+    
     if (!user) {
       res.status(401).json({ message: "Invalid token - user not found" });
       return;
     }
-
+    
     req.userId = decoded.userId;
     req.user = user;
+    
     next();
   } catch (error) {
     res.status(401).json({
@@ -76,7 +72,7 @@ export const authenticateToken = async (
 };
 
 export const requireVerification = (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): void => {
@@ -88,7 +84,7 @@ export const requireVerification = (
 };
 
 export const requireAdmin = (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): void => {
@@ -100,7 +96,7 @@ export const requireAdmin = (
 };
 
 export const requireSuperAdmin = (
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): void => {
@@ -110,3 +106,4 @@ export const requireSuperAdmin = (
   }
   next();
 };
+

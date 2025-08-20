@@ -1,4 +1,4 @@
-// models/providerProfile.model.ts - Fixed version with working hours serialization
+// models/providerProfile.model.ts - Updated version with enhanced risk assessment
 import { Schema, model, Document, Types, Model } from "mongoose";
 import {
   ProviderProfile,
@@ -9,10 +9,72 @@ import {
 } from "../types";
 
 // Extend the interface for Mongoose document with instance methods
-export interface ProviderProfileDocument
-  extends Omit<ProviderProfile, "_id">,
-    Document {
+export interface ProviderProfileDocument extends Document {
   _id: Types.ObjectId;
+  profileId: Types.ObjectId;
+  providerContactInfo: ProviderContactInfo;
+  operationalStatus: ProviderOperationalStatus;
+  serviceOfferings: Types.ObjectId[];
+  workingHours: Record<string, { start: string; end: string; isAvailable: boolean }>;
+  isAvailableForWork: boolean;
+  isAlwaysAvailable: boolean;
+  businessName?: string;
+  businessRegistration?: {
+    registrationNumber: string;
+    registrationDocument: FileReference;
+  };
+  insurance?: {
+    provider: string;
+    policyNumber: string;
+    expiryDate: Date;
+    document: FileReference;
+  };
+  safetyMeasures: {
+    requiresDeposit: boolean;
+    depositAmount?: number;
+    hasInsurance: boolean;
+    insuranceProvider?: string;
+    insuranceExpiryDate?: Date;
+    emergencyContactVerified: boolean;
+  };
+  performanceMetrics: {
+    completionRate: number;
+    averageRating: number;
+    totalJobs: number;
+    responseTimeMinutes: number;
+    averageResponseTime: number;
+    cancellationRate: number;
+    disputeRate: number;
+    clientRetentionRate: number;
+  };
+  riskLevel: RiskLevel;
+  riskFactors: {
+    newProvider: boolean;
+    lowCompletionRate: boolean;
+    highCancellationRate: boolean;
+    recentComplaints: number;
+    verificationGaps: string[];
+    negativeReviews: number;
+  };
+  mitigationMeasures: {
+    requiresDeposit: boolean;
+    limitedJobValue: boolean;
+    maxJobValue?: number;
+    requiresSupervision: boolean;
+    frequentCheckins: boolean;
+    clientConfirmationRequired: boolean;
+  };
+  lastRiskAssessmentDate?: Date;
+  riskAssessedBy?: Types.ObjectId;
+  nextAssessmentDate: Date;
+  riskAssessmentNotes?: string;
+  penaltiesCount: number;
+  lastPenaltyDate?: Date;
+  isDeleted: boolean;
+  deletedAt?: Date;
+  deletedBy?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
 
   // Instance methods
   updatePerformanceMetrics(
@@ -44,6 +106,19 @@ export interface ProviderProfileDocument
   ): Promise<this>;
   toggleAvailability(): Promise<this>;
   addPenalty(): Promise<this>;
+  
+  // Enhanced risk assessment methods
+  updateRiskAssessment(riskData: {
+    riskLevel?: RiskLevel;
+    riskFactors?: any;
+    mitigationMeasures?: any;
+    notes?: string;
+    assessedBy: Types.ObjectId;
+    nextAssessmentDays?: number;
+  }): Promise<this>;
+  calculateRiskScore(): number;
+  isRiskAssessmentOverdue(): boolean;
+  scheduleNextAssessment(daysFromNow?: number): Promise<this>;
 }
 
 // Define static methods interface
@@ -60,6 +135,7 @@ interface ProviderProfileModel extends Model<ProviderProfileDocument> {
   findByRiskLevel(riskLevel: RiskLevel): Promise<ProviderProfileDocument[]>;
   findTopRatedProviders(limit?: number): Promise<ProviderProfileDocument[]>;
   findHighRiskProviders(): Promise<ProviderProfileDocument[]>;
+  findOverdueRiskAssessments(): Promise<ProviderProfileDocument[]>;
 }
 
 // File Reference schema
@@ -90,7 +166,7 @@ const fileReferenceSchema = new Schema<FileReference>(
   { _id: false }
 );
 
-// Provider Contact Info schema
+// Provider Contact Info schema - Enhanced with all ContactDetails fields
 const providerContactInfoSchema = new Schema<ProviderContactInfo>(
   {
     businessEmail: {
@@ -102,6 +178,7 @@ const providerContactInfoSchema = new Schema<ProviderContactInfo>(
         "Please provide a valid email address",
       ],
     },
+    // From ProviderContactInfo extension
     emergencyContact: {
       type: String,
       required: [true, "Emergency contact is required"],
@@ -115,30 +192,88 @@ const providerContactInfoSchema = new Schema<ProviderContactInfo>(
   { _id: false }
 );
 
-// Working Hours schema
-const workingHoursSchema = new Schema(
+// Business Registration schema
+const businessRegistrationSchema = new Schema(
   {
-    start: {
+    registrationNumber: {
       type: String,
-      required: true,
-      match: [
-        /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
-        "Time must be in HH:MM format",
-      ],
+      required: [true, "Registration number is required"],
+      trim: true,
     },
-    end: {
+    registrationDocument: {
+      type: fileReferenceSchema,
+      required: [true, "Registration document is required"],
+    },
+  },
+  { _id: false }
+);
+
+// Insurance schema
+const insuranceSchema = new Schema(
+  {
+    provider: {
       type: String,
-      required: true,
-      match: [
-        /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
-        "Time must be in HH:MM format",
-      ],
+      required: [true, "Insurance provider is required"],
+      trim: true,
     },
-    isAvailable: {
+    policyNumber: {
+      type: String,
+      required: [true, "Policy number is required"],
+      trim: true,
+    },
+    expiryDate: {
+      type: Date,
+      required: [true, "Insurance expiry date is required"],
+    },
+    document: {
+      type: fileReferenceSchema,
+      required: [true, "Insurance document is required"],
+    },
+  },
+  { _id: false }
+);
+
+// Safety Measures schema
+const safetyMeasuresSchema = new Schema(
+  {
+    requiresDeposit: {
       type: Boolean,
-      default: true,
+      default: false,
     },
-    isAlwaysAvailable: {
+    depositAmount: {
+      type: Number,
+      min: [0, "Deposit amount cannot be negative"],
+      validate: {
+        validator: function (this: any, value: number) {
+          return !this.requiresDeposit || (value && value > 0);
+        },
+        message: "Deposit amount is required when deposit is required",
+      },
+    },
+    hasInsurance: {
+      type: Boolean,
+      default: false,
+    },
+    insuranceProvider: {
+      type: String,
+      trim: true,
+      validate: {
+        validator: function (this: any, value: string): boolean {
+          return !this.hasInsurance || (typeof value === "string" && value.trim().length > 0);
+        },
+        message: "Insurance provider is required when insurance is indicated",
+      },
+    },
+    insuranceExpiryDate: {
+      type: Date,
+      validate: {
+        validator: function (this: any, value: Date) {
+          return !this.hasInsurance || (value && value > new Date());
+        },
+        message: "Insurance expiry date must be in the future",
+      },
+    },
+    emergencyContactVerified: {
       type: Boolean,
       default: false,
     },
@@ -198,12 +333,94 @@ const performanceMetricsSchema = new Schema(
   { _id: false }
 );
 
+// NEW: Risk Factors schema
+const riskFactorsSchema = new Schema(
+  {
+    newProvider: {
+      type: Boolean,
+      default: true,
+      description: "Provider is new to the platform",
+    },
+    lowCompletionRate: {
+      type: Boolean,
+      default: false,
+      description: "Provider has low job completion rate",
+    },
+    highCancellationRate: {
+      type: Boolean,
+      default: false,
+      description: "Provider has high job cancellation rate",
+    },
+    recentComplaints: {
+      type: Number,
+      min: [0, "Recent complaints cannot be negative"],
+      default: 0,
+      description: "Number of complaints in the last 30 days",
+    },
+    verificationGaps: [{
+      type: String,
+      trim: true,
+      description: "List of verification gaps (e.g., missing documents)",
+    }],
+    negativeReviews: {
+      type: Number,
+      min: [0, "Negative reviews count cannot be negative"],
+      default: 0,
+      description: "Number of negative reviews (1-2 stars)",
+    },
+  },
+  { _id: false }
+);
+
+// NEW: Mitigation Measures schema
+const mitigationMeasuresSchema = new Schema(
+  {
+    requiresDeposit: {
+      type: Boolean,
+      default: false,
+      description: "Provider must pay deposit before job assignment",
+    },
+    limitedJobValue: {
+      type: Boolean,
+      default: false,
+      description: "Provider is limited to lower value jobs",
+    },
+    maxJobValue: {
+      type: Number,
+      min: [0, "Max job value cannot be negative"],
+      validate: {
+        validator: function (this: any, value: number) {
+          return !this.limitedJobValue || (value && value > 0);
+        },
+        message: "Max job value is required when job value is limited",
+      },
+      description: "Maximum job value allowed for this provider",
+    },
+    requiresSupervision: {
+      type: Boolean,
+      default: false,
+      description: "Provider requires supervision during jobs",
+    },
+    frequentCheckins: {
+      type: Boolean,
+      default: false,
+      description: "Provider requires frequent check-ins during jobs",
+    },
+    clientConfirmationRequired: {
+      type: Boolean,
+      default: false,
+      description: "Client confirmation required before payment release",
+    },
+  },
+  { _id: false }
+);
+
 // Main ProviderProfile schema
 const providerProfileSchema = new Schema<ProviderProfileDocument>(
   {
     profileId: {
       type: Schema.Types.ObjectId,
-      ref: "Profile", // Fixed: Use correct model name that matches your Profile model
+      ref: "Profile",
       required: [true, "Profile ID is required"],
       index: true,
       unique: true,
@@ -232,7 +449,6 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
       },
     ],
 
-    // Fixed: Use Schema.Types.Mixed for better Map support
     workingHours: {
       type: Schema.Types.Mixed,
       default: () => ({
@@ -262,6 +478,26 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
       maxlength: [100, "Business name cannot exceed 100 characters"],
     },
 
+    businessRegistration: {
+      type: businessRegistrationSchema,
+      required: false,
+    },
+
+    insurance: {
+      type: insuranceSchema,
+      required: false,
+    },
+
+    safetyMeasures: {
+      type: safetyMeasuresSchema,
+      required: [true, "Safety measures are required"],
+      default: () => ({
+        requiresDeposit: false,
+        hasInsurance: false,
+        emergencyContactVerified: false,
+      }),
+    },
+
     performanceMetrics: {
       type: performanceMetricsSchema,
       required: true,
@@ -277,6 +513,7 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
       }),
     },
 
+    // ENHANCED RISK ASSESSMENT FIELDS
     riskLevel: {
       type: String,
       enum: {
@@ -287,6 +524,33 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
       default: RiskLevel.MEDIUM,
     },
 
+    // NEW: Detailed risk factors
+    riskFactors: {
+      type: riskFactorsSchema,
+      required: true,
+      default: () => ({
+        newProvider: true,
+        lowCompletionRate: false,
+        highCancellationRate: false,
+        recentComplaints: 0,
+        verificationGaps: [],
+        negativeReviews: 0,
+      }),
+    },
+
+    // NEW: Mitigation measures
+    mitigationMeasures: {
+      type: mitigationMeasuresSchema,
+      required: true,
+      default: () => ({
+        requiresDeposit: false,
+        limitedJobValue: false,
+        requiresSupervision: false,
+        frequentCheckins: false,
+        clientConfirmationRequired: false,
+      }),
+    },
+
     lastRiskAssessmentDate: {
       type: Date,
     },
@@ -294,6 +558,24 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
     riskAssessedBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
+    },
+
+    // NEW: Next assessment scheduling
+    nextAssessmentDate: {
+      type: Date,
+      required: [true, "Next assessment date is required"],
+      default: () => {
+        const nextDate = new Date();
+        nextDate.setDate(nextDate.getDate() + 30); // 30 days from creation
+        return nextDate;
+      },
+    },
+
+    // NEW: Risk assessment notes
+    riskAssessmentNotes: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Risk assessment notes cannot exceed 1000 characters"],
     },
 
     penaltiesCount: {
@@ -328,7 +610,7 @@ const providerProfileSchema = new Schema<ProviderProfileDocument>(
   }
 );
 
-// Pre-save middleware to handle working hours
+// Pre-save middleware
 providerProfileSchema.pre("save", function (next) {
   // Ensure performance metrics are within valid ranges
   const metrics = this.performanceMetrics;
@@ -347,12 +629,39 @@ providerProfileSchema.pre("save", function (next) {
 
     if (metrics.averageRating < 0) metrics.averageRating = 0;
     if (metrics.averageRating > 5) metrics.averageRating = 5;
+
+    // Auto-update risk factors based on performance metrics
+    if (this.riskFactors) {
+      this.riskFactors.lowCompletionRate = metrics.completionRate < 70;
+      this.riskFactors.highCancellationRate = metrics.cancellationRate > 20;
+    }
+  }
+
+  // Validate insurance fields consistency
+  if (this.safetyMeasures?.hasInsurance) {
+    if (!this.safetyMeasures.insuranceProvider || !this.safetyMeasures.insuranceExpiryDate) {
+      return next(new Error("Insurance provider and expiry date are required when hasInsurance is true"));
+    }
+  }
+
+  // Validate deposit fields consistency
+  if (this.safetyMeasures?.requiresDeposit) {
+    if (!this.safetyMeasures.depositAmount || this.safetyMeasures.depositAmount <= 0) {
+      return next(new Error("Deposit amount is required when requiresDeposit is true"));
+    }
+  }
+
+  // Validate mitigation measures consistency
+  if (this.mitigationMeasures?.limitedJobValue) {
+    if (!this.mitigationMeasures.maxJobValue || this.mitigationMeasures.maxJobValue <= 0) {
+      return next(new Error("Max job value is required when job value is limited"));
+    }
   }
 
   next();
 });
 
-// Instance method to update working hours - Fixed
+// Instance methods
 providerProfileSchema.methods.updateWorkingHours = function (
   day: string,
   hours: {
@@ -365,16 +674,12 @@ providerProfileSchema.methods.updateWorkingHours = function (
     this.workingHours = {};
   }
 
-  // Since we're using Mixed type, we can directly assign
   this.workingHours[day.toLowerCase()] = hours;
-
-  // Mark the field as modified for Mongoose to save it
   this.markModified("workingHours");
 
   return this.save();
 };
 
-// Add all your other instance methods here...
 providerProfileSchema.methods.updatePerformanceMetrics = function (
   updates: Partial<{
     completionRate: number;
@@ -432,20 +737,127 @@ providerProfileSchema.methods.toggleAvailability = function () {
   return this.save();
 };
 
+// ENHANCED: addPenalty method with risk assessment integration
 providerProfileSchema.methods.addPenalty = function () {
   this.penaltiesCount += 1;
   this.lastPenaltyDate = new Date();
 
+  // Update risk factors
+  if (this.riskFactors) {
+    this.riskFactors.recentComplaints = this.penaltiesCount;
+  }
+
+  // Automatically update risk level and mitigation measures based on penalties
   if (this.penaltiesCount >= 5) {
-    this.riskLevel = RiskLevel.HIGH;
+    this.riskLevel = RiskLevel.CRITICAL;
+    // Add stricter mitigation measures
+    if (this.mitigationMeasures) {
+      this.mitigationMeasures.requiresDeposit = true;
+      this.mitigationMeasures.requiresSupervision = true;
+      this.mitigationMeasures.frequentCheckins = true;
+      this.mitigationMeasures.clientConfirmationRequired = true;
+      this.mitigationMeasures.limitedJobValue = true;
+      this.mitigationMeasures.maxJobValue = 500; // Very low limit
+    }
   } else if (this.penaltiesCount >= 3) {
-    this.riskLevel = RiskLevel.MEDIUM;
+    this.riskLevel = RiskLevel.HIGH;
+    if (this.mitigationMeasures) {
+      this.mitigationMeasures.limitedJobValue = true;
+      this.mitigationMeasures.maxJobValue = 2000;
+      this.mitigationMeasures.frequentCheckins = true;
+      this.mitigationMeasures.clientConfirmationRequired = true;
+    }
   }
 
   return this.save();
 };
 
-// Add static methods...
+// NEW: Enhanced risk assessment methods
+providerProfileSchema.methods.updateRiskAssessment = function (riskData: {
+  riskLevel?: RiskLevel;
+  riskFactors?: any;
+  mitigationMeasures?: any;
+  notes?: string;
+  assessedBy: Types.ObjectId;
+  nextAssessmentDays?: number;
+}) {
+  if (riskData.riskLevel) {
+    this.riskLevel = riskData.riskLevel;
+  }
+  
+  if (riskData.riskFactors) {
+    this.riskFactors = {
+      ...this.riskFactors,
+      ...riskData.riskFactors,
+    };
+    this.markModified('riskFactors');
+  }
+  
+  if (riskData.mitigationMeasures) {
+    this.mitigationMeasures = {
+      ...this.mitigationMeasures,
+      ...riskData.mitigationMeasures,
+    };
+    this.markModified('mitigationMeasures');
+  }
+  
+  this.lastRiskAssessmentDate = new Date();
+  this.riskAssessedBy = riskData.assessedBy;
+  
+  if (riskData.notes) {
+    this.riskAssessmentNotes = riskData.notes;
+  }
+  
+  // Set next assessment date
+  const daysFromNow = riskData.nextAssessmentDays || 30;
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate() + daysFromNow);
+  this.nextAssessmentDate = nextDate;
+  
+  return this.save();
+};
+
+providerProfileSchema.methods.calculateRiskScore = function (): number {
+  let score = 0;
+  const factors = this.riskFactors;
+
+  if (!factors) return 0;
+
+  // Risk factor scoring
+  if (factors.newProvider) score += 20;
+  if (factors.lowCompletionRate) score += 25;
+  if (factors.highCancellationRate) score += 20;
+  
+  // Recent complaints scoring (scaled)
+  if (factors.recentComplaints > 0) {
+    score += Math.min(factors.recentComplaints * 5, 20);
+  }
+
+  // Verification gaps
+  if (factors.verificationGaps && factors.verificationGaps.length > 0) {
+    score += Math.min(factors.verificationGaps.length * 10, 30);
+  }
+
+  // Negative reviews (scaled)
+  if (factors.negativeReviews > 0) {
+    score += Math.min(factors.negativeReviews * 3, 15);
+  }
+
+  return Math.min(score, 100);
+};
+
+providerProfileSchema.methods.isRiskAssessmentOverdue = function (): boolean {
+  return new Date() > this.nextAssessmentDate;
+};
+
+providerProfileSchema.methods.scheduleNextAssessment = function (daysFromNow: number = 30) {
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate() + daysFromNow);
+  this.nextAssessmentDate = nextDate;
+  return this.save();
+};
+
+// Static methods
 providerProfileSchema.statics.findByProfileId = function (
   profileId: Types.ObjectId
 ) {
@@ -497,6 +909,16 @@ providerProfileSchema.statics.findHighRiskProviders = function () {
   });
 };
 
+// NEW: Find providers with overdue risk assessments
+providerProfileSchema.statics.findOverdueRiskAssessments = function () {
+  return this.find({
+    nextAssessmentDate: { $lt: new Date() },
+    isDeleted: { $ne: true },
+  })
+    .populate('riskAssessedBy', 'fullName email')
+    .sort({ nextAssessmentDate: 1 });
+};
+
 // Indexes
 providerProfileSchema.index({ profileId: 1 }, { unique: true });
 providerProfileSchema.index({ operationalStatus: 1 });
@@ -506,15 +928,30 @@ providerProfileSchema.index({ serviceOfferings: 1 });
 providerProfileSchema.index({ "performanceMetrics.averageRating": -1 });
 providerProfileSchema.index({ "performanceMetrics.completionRate": -1 });
 providerProfileSchema.index({ isDeleted: 1 });
+providerProfileSchema.index({ nextAssessmentDate: 1 }); // NEW: For overdue assessments
+providerProfileSchema.index({ penaltiesCount: 1 }); // NEW: For penalty tracking
 
-// Ensure proper JSON serialization
+// JSON serialization
 providerProfileSchema.set("toJSON", {
   virtuals: true,
-  transform: function (doc, ret) {
-    // Ensure working hours is properly serialized
+  transform: function (doc: ProviderProfileDocument, ret: any) {
     if (ret.workingHours && typeof ret.workingHours === "object") {
       ret.workingHours = ret.workingHours;
     }
+    
+    // Add computed risk assessment fields
+    ret.riskScore = doc.calculateRiskScore();
+    ret.isRiskAssessmentOverdue = doc.isRiskAssessmentOverdue();
+    
+    // Calculate days until next assessment
+    if (ret.nextAssessmentDate) {
+      const nextDate = new Date(ret.nextAssessmentDate);
+      const currentDate = new Date();
+      ret.daysUntilNextAssessment = Math.ceil(
+        (nextDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+    }
+    
     return ret;
   },
 });
@@ -522,7 +959,6 @@ providerProfileSchema.set("toJSON", {
 providerProfileSchema.set("toObject", {
   virtuals: true,
   transform: function (doc, ret) {
-    // Ensure working hours is properly serialized
     if (ret.workingHours && typeof ret.workingHours === "object") {
       ret.workingHours = ret.workingHours;
     }
@@ -532,13 +968,12 @@ providerProfileSchema.set("toObject", {
 
 // Virtual for populated profile data
 providerProfileSchema.virtual("profile", {
-  ref: "Profile", // Fixed: Use correct model name
+  ref: "Profile",
   localField: "profileId",
   foreignField: "_id",
   justOne: true,
 });
 
-// Export the model with proper typing
 export const ProviderProfileModel = model<
   ProviderProfileDocument,
   ProviderProfileModel
