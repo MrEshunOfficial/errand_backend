@@ -1,14 +1,16 @@
 // controllers/clientProfile.controller.ts
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { Types } from "mongoose";
 import { ClientProfileModel } from "../models/clientProfile.model";
 import {
   CreateClientProfileRequestBody,
   UpdateClientProfileRequestBody,
   ClientProfileResponse,
+  ClientProfile,
 } from "../types/client-profile.types";
 import { RiskLevel } from "../types/base.types";
 import { Profile } from "../models/profile.model";
+import { ApiResponse } from "../types/aggregated.types";
 
 interface AuthenticatedRequest extends Request {
   userId?: string;
@@ -615,6 +617,488 @@ export class ClientProfileController {
       res.status(500).json({ message: "Failed to retrieve high-risk clients", error: "Internal server error" });
     }
   }
+
+  /**
+ * Get public client profile by ID (No authentication required)
+ * Shows only public information suitable for providers/service providers
+ */
+static async getPublicClientProfile(
+  req: Request<{ id: string }>,
+  res: Response<ApiResponse<Partial<ClientProfile>>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!ClientProfileController.validateObjectId(id)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid client profile ID format" 
+      });
+      return;
+    }
+
+    // Use more specific field selection to avoid issues with missing fields
+    const clientProfile = await ClientProfileModel.findOne({
+      _id: new Types.ObjectId(id),
+      isDeleted: { $ne: true },
+      // Only show profiles that are not high risk or critical
+      riskLevel: { $in: [RiskLevel.LOW, RiskLevel.MEDIUM] }
+    })
+    .populate([
+      { 
+        path: "profileId", 
+        select: "bio location",
+        match: { isDeleted: { $ne: true } } // Ensure populated profile is not deleted
+      },
+      { 
+        path: "preferredServices", 
+        select: "name title description", // Include both name and title for compatibility
+        match: { isDeleted: { $ne: true } }
+      }
+    ])
+    .select(`
+      profileId preferredServices totalBookings completedBookings 
+      averageRating totalReviews loyaltyTier memberSince 
+      isPhoneVerified isEmailVerified isAddressVerified 
+      communicationStyle preferredContactMethod responseTime 
+      createdAt updatedAt
+    `)
+    .lean()
+    .exec();
+
+    if (!clientProfile) {
+      res.status(404).json({ 
+        success: false, 
+        message: "Client profile not found or not available" 
+      });
+      return;
+    }
+
+    // Only show public-facing information with safe defaults
+    const publicProfile: Partial<ClientProfile> = {
+      _id: clientProfile._id,
+      profileId: clientProfile.profileId,
+      preferredServices: clientProfile.preferredServices || [],
+      totalBookings: clientProfile.totalBookings || 0,
+      completedBookings: clientProfile.completedBookings || 0,
+      averageRating: clientProfile.averageRating || undefined,
+      totalReviews: clientProfile.totalReviews || 0,
+      loyaltyTier: clientProfile.loyaltyTier || "bronze",
+      memberSince: clientProfile.memberSince,
+      isPhoneVerified: clientProfile.isPhoneVerified || false,
+      isEmailVerified: clientProfile.isEmailVerified || false,
+      isAddressVerified: clientProfile.isAddressVerified || false,
+      communicationStyle: clientProfile.communicationStyle || undefined,
+      preferredContactMethod: clientProfile.preferredContactMethod || undefined,
+      responseTime: clientProfile.responseTime || undefined,
+      createdAt: clientProfile.createdAt,
+      updatedAt: clientProfile.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Public client profile retrieved successfully",
+      data: publicProfile
+    });
+  } catch (error) {
+    console.error("Error retrieving public client profile:", error);
+    
+    // More detailed error logging for debugging
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to retrieve public client profile",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error"
+    });
+  }
+}
+
+/**
+ * Get public client profile by profile ID (No authentication required)
+ * Alternative lookup method for providers who have the profile ID
+ */
+static async getPublicClientProfileByProfileId(
+  req: Request<{ profileId: string }>,
+  res: Response<ApiResponse<Partial<ClientProfile>>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { profileId } = req.params;
+
+    if (!ClientProfileController.validateObjectId(profileId)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid profile ID format" 
+      });
+      return;
+    }
+
+    const clientProfile = await ClientProfileModel.findOne({
+      profileId: new Types.ObjectId(profileId),
+      isDeleted: { $ne: true },
+      // Only show profiles that are not high risk or critical
+      riskLevel: { $in: [RiskLevel.LOW, RiskLevel.MEDIUM] }
+    })
+    .populate([
+      { 
+        path: "profileId", 
+        select: "bio location",
+        match: { isDeleted: { $ne: true } }
+      },
+      { 
+        path: "preferredServices", 
+        select: "name title description",
+        match: { isDeleted: { $ne: true } }
+      }
+    ])
+    .select(`
+      profileId preferredServices totalBookings completedBookings 
+      averageRating totalReviews loyaltyTier memberSince 
+      isPhoneVerified isEmailVerified isAddressVerified 
+      communicationStyle preferredContactMethod responseTime 
+      createdAt updatedAt
+    `)
+    .lean()
+    .exec();
+
+    if (!clientProfile) {
+      res.status(404).json({ 
+        success: false, 
+        message: "Client profile not found or not available" 
+      });
+      return;
+    }
+
+    // Only show public-facing information with safe defaults
+    const publicProfile: Partial<ClientProfile> = {
+      _id: clientProfile._id,
+      profileId: clientProfile.profileId,
+      preferredServices: clientProfile.preferredServices || [],
+      totalBookings: clientProfile.totalBookings || 0,
+      completedBookings: clientProfile.completedBookings || 0,
+      averageRating: clientProfile.averageRating || undefined,
+      totalReviews: clientProfile.totalReviews || 0,
+      loyaltyTier: clientProfile.loyaltyTier || "bronze",
+      memberSince: clientProfile.memberSince,
+      isPhoneVerified: clientProfile.isPhoneVerified || false,
+      isEmailVerified: clientProfile.isEmailVerified || false,
+      isAddressVerified: clientProfile.isAddressVerified || false,
+      communicationStyle: clientProfile.communicationStyle || undefined,
+      preferredContactMethod: clientProfile.preferredContactMethod || undefined,
+      responseTime: clientProfile.responseTime || undefined,
+      createdAt: clientProfile.createdAt,
+      updatedAt: clientProfile.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Public client profile retrieved successfully",
+      data: publicProfile
+    });
+  } catch (error) {
+    console.error("Error retrieving public client profile by profile ID:", error);
+    
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to retrieve public client profile",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error"
+    });
+  }
+}
+
+/**
+ * Get basic client verification status (No authentication required)
+ * Useful for providers to check client reliability before accepting jobs
+ */
+static async getClientVerificationStatus(
+  req: Request<{ id: string }>,
+  res: Response<ApiResponse<{
+    isVerified: boolean;
+    verificationLevel: 'none' | 'partial' | 'full';
+    verifiedAspects: {
+      phone: boolean;
+      email: boolean;
+      address: boolean;
+    };
+    loyaltyTier?: "bronze" | "silver" | "gold" | "platinum";
+    memberSince?: Date;
+    totalBookings: number;
+    completedBookings: number;
+    completionRate: number;
+    averageRating?: number;
+    totalReviews: number;
+  }>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!ClientProfileController.validateObjectId(id)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid client profile ID format"
+      });
+      return;
+    }
+
+    const clientProfile = await ClientProfileModel.findOne({
+      _id: new Types.ObjectId(id),
+      isDeleted: { $ne: true },
+      // Only show profiles that are not critical risk
+      riskLevel: { $ne: RiskLevel.CRITICAL }
+    })
+    .select(`
+      isPhoneVerified isEmailVerified isAddressVerified loyaltyTier 
+      memberSince totalBookings completedBookings cancelledBookings 
+      averageRating totalReviews
+    `)
+    .lean()
+    .exec();
+
+    if (!clientProfile) {
+      res.status(404).json({ 
+        success: false, 
+        message: "Client profile not found or not available"
+      });
+      return;
+    }
+
+    const verifiedAspects = {
+      phone: clientProfile.isPhoneVerified || false,
+      email: clientProfile.isEmailVerified || false,
+      address: clientProfile.isAddressVerified || false
+    };
+
+    const verifiedCount = Object.values(verifiedAspects).filter(Boolean).length;
+    let verificationLevel: 'none' | 'partial' | 'full' = 'none';
+    
+    if (verifiedCount === 3) verificationLevel = 'full';
+    else if (verifiedCount > 0) verificationLevel = 'partial';
+
+    const isVerified = verificationLevel === 'full';
+
+    // Calculate completion rate with safe defaults
+    const totalAttempted = clientProfile.totalBookings || 0;
+    const completed = clientProfile.completedBookings || 0;
+    const completionRate = totalAttempted > 0 ? (completed / totalAttempted) * 100 : 0;
+
+    const verificationData = {
+      isVerified,
+      verificationLevel,
+      verifiedAspects,
+      loyaltyTier: clientProfile.loyaltyTier as "bronze" | "silver" | "gold" | "platinum" | undefined,
+      memberSince: clientProfile.memberSince,
+      totalBookings: totalAttempted,
+      completedBookings: completed,
+      completionRate: Math.round(completionRate * 100) / 100, // Round to 2 decimal places
+      averageRating: clientProfile.averageRating,
+      totalReviews: clientProfile.totalReviews || 0
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Client verification status retrieved successfully",
+      data: verificationData
+    });
+  } catch (error) {
+    console.error("Error retrieving client verification status:", error);
+    
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to retrieve client verification status",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error"
+    });
+  }
+}
+
+/**
+ * Get client reliability metrics (No authentication required)
+ * Extended version with more detailed metrics for provider decision making
+ */
+static async getClientReliabilityMetrics(
+  req: Request<{ id: string }>,
+  res: Response<ApiResponse<{
+    reliabilityScore: number; // 0-100 calculated score
+    bookingHistory: {
+      totalBookings: number;
+      completedBookings: number;
+      cancelledBookings: number;
+      disputedBookings: number;
+      completionRate: number;
+      cancellationRate: number;
+      disputeRate: number;
+    };
+    engagement: {
+      memberSince?: Date;
+      lastActiveDate?: Date;
+      responseTime?: number;
+      loyaltyTier?: "bronze" | "silver" | "gold" | "platinum";
+    };
+    reputation: {
+      averageRating?: number;
+      totalReviews: number;
+    };
+    verification: {
+      isPhoneVerified: boolean;
+      isEmailVerified: boolean;
+      isAddressVerified: boolean;
+      verificationLevel: 'none' | 'partial' | 'full';
+    };
+  }>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!ClientProfileController.validateObjectId(id)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid client profile ID format"
+      });
+      return;
+    }
+
+    const clientProfile = await ClientProfileModel.findOne({
+      _id: new Types.ObjectId(id),
+      isDeleted: { $ne: true },
+      // Only show profiles that are not critical risk
+      riskLevel: { $ne: RiskLevel.CRITICAL }
+    })
+    .select(`
+      isPhoneVerified isEmailVerified isAddressVerified loyaltyTier 
+      memberSince lastActiveDate totalBookings completedBookings 
+      cancelledBookings disputedBookings averageRating totalReviews responseTime
+    `)
+    .lean()
+    .exec();
+
+    if (!clientProfile) {
+      res.status(404).json({ 
+        success: false, 
+        message: "Client profile not found or not available"
+      });
+      return;
+    }
+
+    // Calculate rates with safe defaults
+    const totalBookings = clientProfile.totalBookings || 0;
+    const completedBookings = clientProfile.completedBookings || 0;
+    const cancelledBookings = clientProfile.cancelledBookings || 0;
+    const disputedBookings = clientProfile.disputedBookings || 0;
+
+    const completionRate = totalBookings > 0 ? (completedBookings / totalBookings) * 100 : 0;
+    const cancellationRate = totalBookings > 0 ? (cancelledBookings / totalBookings) * 100 : 0;
+    const disputeRate = totalBookings > 0 ? (disputedBookings / totalBookings) * 100 : 0;
+
+    // Calculate verification level
+    const verifiedAspects = {
+      phone: clientProfile.isPhoneVerified || false,
+      email: clientProfile.isEmailVerified || false,
+      address: clientProfile.isAddressVerified || false
+    };
+    const verifiedCount = Object.values(verifiedAspects).filter(Boolean).length;
+    let verificationLevel: 'none' | 'partial' | 'full' = 'none';
+    if (verifiedCount === 3) verificationLevel = 'full';
+    else if (verifiedCount > 0) verificationLevel = 'partial';
+
+    // Calculate reliability score (0-100)
+    let reliabilityScore = 0;
+    
+    // Completion rate weight: 40%
+    reliabilityScore += completionRate * 0.4;
+    
+    // Verification weight: 25%
+    reliabilityScore += (verifiedCount / 3) * 100 * 0.25;
+    
+    // Rating weight: 20% (if available)
+    if (clientProfile.averageRating && clientProfile.totalReviews > 0) {
+      reliabilityScore += (clientProfile.averageRating / 5) * 100 * 0.2;
+    }
+    
+    // Low dispute/cancellation rate weight: 15%
+    const lowProblemRate = Math.max(0, 100 - (cancellationRate + disputeRate * 2)); // Disputes weighted more heavily
+    reliabilityScore += lowProblemRate * 0.15;
+
+    // Round to 2 decimal places
+    reliabilityScore = Math.round(reliabilityScore * 100) / 100;
+
+    const reliabilityData = {
+      reliabilityScore,
+      bookingHistory: {
+        totalBookings,
+        completedBookings,
+        cancelledBookings,
+        disputedBookings,
+        completionRate: Math.round(completionRate * 100) / 100,
+        cancellationRate: Math.round(cancellationRate * 100) / 100,
+        disputeRate: Math.round(disputeRate * 100) / 100
+      },
+      engagement: {
+        memberSince: clientProfile.memberSince,
+        lastActiveDate: clientProfile.lastActiveDate,
+        responseTime: clientProfile.responseTime,
+        loyaltyTier: clientProfile.loyaltyTier as "bronze" | "silver" | "gold" | "platinum" | undefined
+      },
+      reputation: {
+        averageRating: clientProfile.averageRating,
+        totalReviews: clientProfile.totalReviews || 0
+      },
+      verification: {
+        isPhoneVerified: verifiedAspects.phone,
+        isEmailVerified: verifiedAspects.email,
+        isAddressVerified: verifiedAspects.address,
+        verificationLevel
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Client reliability metrics retrieved successfully",
+      data: reliabilityData
+    });
+  } catch (error) {
+    console.error("Error retrieving client reliability metrics:", error);
+    
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to retrieve client reliability metrics",
+      error: process.env.NODE_ENV === 'development' ? error.message : "Internal server error"
+    });
+  }
+}
+
 }
 
 export default ClientProfileController;

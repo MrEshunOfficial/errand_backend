@@ -18,7 +18,7 @@ import {
 } from "../types/aggregated.types";
 import { Profile } from "../models/profile.model";
 import { AuthenticatedRequest, handleError, validateObjectId } from "../utils/controller-utils/controller.utils";
-import { ProviderProfileResponse, CreateProviderProfileRequestBody, UpdateProviderProfileRequestBody } from "../types";
+import { ProviderProfileResponse, CreateProviderProfileRequestBody, UpdateProviderProfileRequestBody, ProviderProfile } from "../types";
 
 export class ProviderProfileController {
   // Common population options
@@ -1028,6 +1028,294 @@ export class ProviderProfileController {
       handleError(res, error, "Failed to get provider statistics");
     }
   }
+
+  /**
+ * Get public provider profile by ID (No authentication required)
+ * Shows only public information suitable for customers
+ */
+static async getPublicProviderProfile(
+  req: Request<{ id: string }>,
+  res: Response<ApiResponse<Partial<ProviderProfile>>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    if (!validateObjectId(id)) {
+      res.status(400).json({ success: false, message: "Invalid provider profile ID" });
+      return;
+    }
+
+    const providerProfile = await ProviderProfileModel.findOne({
+      _id: new Types.ObjectId(id),
+      isDeleted: { $ne: true },
+      operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
+    })
+    .populate([
+      { path: "profileId", select: "bio location contactDetails" },
+      { path: "serviceOfferings", select: "name description categoryId pricing" }
+    ])
+    .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -safetyMeasures.depositAmount -businessRegistration -insurance")
+    .lean()
+    .exec();
+
+    if (!providerProfile) {
+      res.status(404).json({ success: false, message: "Provider profile not found or not available" });
+      return;
+    }
+
+    // Only show public-facing information
+    const publicProfile: Partial<ProviderProfile> = {
+      _id: providerProfile._id,
+      profileId: providerProfile.profileId,
+      businessName: providerProfile.businessName,
+      serviceOfferings: providerProfile.serviceOfferings,
+      workingHours: providerProfile.workingHours,
+      isAvailableForWork: providerProfile.isAvailableForWork,
+      performanceMetrics: {
+        averageRating: providerProfile.performanceMetrics?.averageRating || 0,
+        totalJobs: providerProfile.performanceMetrics?.totalJobs || 0,
+        completionRate: providerProfile.performanceMetrics?.completionRate || 0,
+        responseTimeMinutes: providerProfile.performanceMetrics?.responseTimeMinutes || 0,
+        averageResponseTime: providerProfile.performanceMetrics?.averageResponseTime || 0,
+        cancellationRate: providerProfile.performanceMetrics?.cancellationRate || 0,
+        disputeRate: providerProfile.performanceMetrics?.disputeRate || 0,
+        clientRetentionRate: providerProfile.performanceMetrics?.clientRetentionRate || 0
+      },
+      safetyMeasures: {
+        requiresDeposit: providerProfile.safetyMeasures?.requiresDeposit || false,
+        hasInsurance: providerProfile.safetyMeasures?.hasInsurance || false,
+        insuranceProvider: providerProfile.safetyMeasures?.insuranceProvider,
+        insuranceExpiryDate: providerProfile.safetyMeasures?.insuranceExpiryDate,
+        emergencyContactVerified: providerProfile.safetyMeasures?.emergencyContactVerified || false
+      },
+      createdAt: providerProfile.createdAt,
+      updatedAt: providerProfile.updatedAt
+    };
+
+    // Fix: Use ProviderProfileController instead of this
+    ProviderProfileController.sendSuccess(res, "Public provider profile retrieved successfully", publicProfile);
+  } catch (error) {
+    handleError(res, error, "Failed to get public provider profile");
+  }
+}
+
+/**
+ * Get all public provider profiles with search and filtering (No authentication required)
+ * Shows only active providers with public information
+ */
+static async getPublicProviderProfiles(
+  req: Request<{}, ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>, {}, 
+    QueryParams & { 
+      serviceId?: string; 
+      businessType?: string; 
+      minRating?: string;
+      maxServiceRadius?: string;
+      available?: string;
+      search?: string;
+      hasInsurance?: string;
+    }>,
+  res: Response<ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { 
+      page = 1, 
+      limit = 12, 
+      sort = "performanceMetrics.averageRating", 
+      order = "desc", 
+      serviceId,
+      minRating,
+      available,
+      search,
+      hasInsurance
+    } = req.query;
+
+    // Build filter for public profiles only
+    const filter: any = { 
+      isDeleted: { $ne: true },
+      operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
+    };
+
+    // Apply filters
+    if (serviceId && validateObjectId(serviceId)) {
+      filter.serviceOfferings = new Types.ObjectId(serviceId);
+    }
+    if (minRating) {
+      filter['performanceMetrics.averageRating'] = { $gte: parseFloat(minRating) };
+    }
+    if (available !== undefined) {
+      filter.isAvailableForWork = (available as string) === "true";
+    }
+    if (hasInsurance !== undefined) {
+      filter['safetyMeasures.hasInsurance'] = (hasInsurance as string) === "true";
+    }
+
+    // Add text search if provided
+    if (search) {
+      filter.$or = [
+        { businessName: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(page as unknown as string));
+    const limitNum = Math.max(1, Math.min(50, parseInt(limit as unknown as string))); // Max 50 for public
+    const skip = (pageNum - 1) * limitNum;
+    const sortDirection = order === "asc" ? 1 : -1;
+
+    const [profiles, total] = await Promise.all([
+      ProviderProfileModel.find(filter)
+        .populate([
+          { path: "profileId", select: "bio location contactDetails" },
+          { path: "serviceOfferings", select: "name description categoryId pricing" }
+        ])
+        .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -safetyMeasures.depositAmount -businessRegistration -insurance")
+        .sort({ [sort]: sortDirection })
+        .skip(skip)
+        .limit(limitNum)
+        .lean()
+        .exec(),
+      ProviderProfileModel.countDocuments(filter),
+    ]);
+
+    // Filter to only public information
+    const publicProfiles: Partial<ProviderProfile>[] = profiles.map(profile => ({
+      _id: profile._id,
+      profileId: profile.profileId,
+      businessName: profile.businessName,
+      serviceOfferings: profile.serviceOfferings,
+      workingHours: profile.workingHours,
+      isAvailableForWork: profile.isAvailableForWork,
+      performanceMetrics: {
+        averageRating: profile.performanceMetrics?.averageRating || 0,
+        totalJobs: profile.performanceMetrics?.totalJobs || 0,
+        completionRate: profile.performanceMetrics?.completionRate || 0,
+        responseTimeMinutes: profile.performanceMetrics?.responseTimeMinutes || 0,
+        averageResponseTime: profile.performanceMetrics?.averageResponseTime || 0,
+        cancellationRate: profile.performanceMetrics?.cancellationRate || 0,
+        disputeRate: profile.performanceMetrics?.disputeRate || 0,
+        clientRetentionRate: profile.performanceMetrics?.clientRetentionRate || 0
+      },
+      safetyMeasures: {
+        requiresDeposit: profile.safetyMeasures?.requiresDeposit || false,
+        hasInsurance: profile.safetyMeasures?.hasInsurance || false,
+        insuranceProvider: profile.safetyMeasures?.insuranceProvider,
+        insuranceExpiryDate: profile.safetyMeasures?.insuranceExpiryDate,
+        emergencyContactVerified: profile.safetyMeasures?.emergencyContactVerified || false
+      },
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt
+    }));
+
+    const totalPages = Math.ceil(total / limitNum);
+    // Fix: Use ProviderProfileController instead of this
+    ProviderProfileController.sendSuccess(res, "Public provider profiles retrieved successfully", {
+      data: publicProfiles,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      hasNext: pageNum < totalPages,
+      hasPrev: pageNum > 1,
+      totalPages,
+    });
+  } catch (error) {
+    handleError(res, error, "Failed to get public provider profiles");
+  }
+}
+
+/**
+ * Search providers by location and service (No authentication required)
+ */
+static async searchPublicProviders(
+  req: Request<{}, ApiResponse<Partial<ProviderProfile>[]>, {}, {
+    lat?: string;
+    lng?: string;
+    radius?: string;
+    serviceId?: string;
+    limit?: string;
+  }>,
+  res: Response<ApiResponse<Partial<ProviderProfile>[]>>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { lat, lng, radius = "50", serviceId, limit = "20" } = req.query;
+    
+    const filter: any = {
+      isDeleted: { $ne: true },
+      operationalStatus: ProviderOperationalStatus.ACTIVE,
+      isAvailableForWork: true
+    };
+
+    if (serviceId && validateObjectId(serviceId)) {
+      filter.serviceOfferings = new Types.ObjectId(serviceId);
+    }
+
+    // Add location-based filtering if coordinates provided
+    if (lat && lng) {
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lng);
+      const searchRadius = parseInt(radius);
+
+      if (isNaN(latitude) || isNaN(longitude) || isNaN(searchRadius)) {
+        res.status(400).json({ success: false, message: "Invalid location parameters" });
+        return;
+      }
+
+      // Note: This is a simplified radius check. In production, you'd want to use MongoDB's geospatial queries
+      // For now, we'll just include providers who service the area (assuming location is in profileId)
+    }
+
+    const limitNum = Math.min(50, parseInt(limit)); // Max 50 results
+
+    const providers = await ProviderProfileModel.find(filter)
+      .populate([
+        { path: "profileId", select: "bio location" },
+        { path: "serviceOfferings", select: "name description pricing" }
+      ])
+      .select("businessName serviceOfferings workingHours performanceMetrics safetyMeasures isAvailableForWork createdAt updatedAt")
+      .sort({ 
+        'performanceMetrics.averageRating': -1, 
+        'performanceMetrics.totalJobs': -1 
+      })
+      .limit(limitNum)
+      .lean()
+      .exec();
+
+    // Map to public profile format
+    const publicProviders: Partial<ProviderProfile>[] = providers.map(provider => ({
+      _id: provider._id,
+      profileId: provider.profileId,
+      businessName: provider.businessName,
+      serviceOfferings: provider.serviceOfferings,
+      workingHours: provider.workingHours,
+      isAvailableForWork: provider.isAvailableForWork,
+      performanceMetrics: {
+        averageRating: provider.performanceMetrics?.averageRating || 0,
+        totalJobs: provider.performanceMetrics?.totalJobs || 0,
+        completionRate: provider.performanceMetrics?.completionRate || 0,
+        responseTimeMinutes: provider.performanceMetrics?.responseTimeMinutes || 0,
+        averageResponseTime: provider.performanceMetrics?.averageResponseTime || 0,
+        cancellationRate: provider.performanceMetrics?.cancellationRate || 0,
+        disputeRate: provider.performanceMetrics?.disputeRate || 0,
+        clientRetentionRate: provider.performanceMetrics?.clientRetentionRate || 0
+      },
+      safetyMeasures: {
+        requiresDeposit: provider.safetyMeasures?.requiresDeposit || false,
+        hasInsurance: provider.safetyMeasures?.hasInsurance || false,
+        insuranceProvider: provider.safetyMeasures?.insuranceProvider,
+        insuranceExpiryDate: provider.safetyMeasures?.insuranceExpiryDate,
+        emergencyContactVerified: provider.safetyMeasures?.emergencyContactVerified || false
+      },
+      createdAt: provider.createdAt,
+      updatedAt: provider.updatedAt
+    }));
+
+    // Fix: Use ProviderProfileController instead of this
+    ProviderProfileController.sendSuccess(res, "Public provider search completed successfully", publicProviders);
+  } catch (error) {
+    handleError(res, error, "Failed to search public providers");
+  }
+}
 }
 
 export default ProviderProfileController;

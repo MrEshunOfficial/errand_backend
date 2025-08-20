@@ -25,16 +25,18 @@ export interface ServiceRequest extends BaseEntity, SoftDeletable {
 
   serviceAddress: UserLocation;
 
-  pricing: {
-    estimatedPrice?: number;
+  pricing?: {
     quotedPrice?: number;
-    finalPrice?: number;
-    currency: string;
+    quotedPriceReason?: string;
+    defaultCurrency: string;
     priceBreakdown?: Array<{
       description: string;
       amount: number;
     }>;
+
   };
+
+  negotiatePriceWithProvider: boolean;
 
   timeline: {
     createdAt: Date;

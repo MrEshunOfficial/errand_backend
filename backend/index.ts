@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import profileRoutes from "./routes/profile.routes.js";
+import clientProfileRoutes from "./routes/clientProfile.routes.js";
+import providerProfileRoutes from "./routes/providerProfile.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import { connectDB } from "./database/connectDB";
@@ -35,9 +37,11 @@ app.use(express.urlencoded({ extended: true }));
 // Cookie parser middleware
 app.use(cookieParser());
 
-// Routes
+// Routes - Order matters for profile routes to prevent conflicts
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/profile/client-profiles", clientProfileRoutes);
+app.use("/api/profile/provider-profiles", providerProfileRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/services", serviceRoutes);
 app.use("/api/warnings", warningRoutes);
