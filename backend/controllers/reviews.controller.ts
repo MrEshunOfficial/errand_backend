@@ -7,7 +7,6 @@ import {
 } from "../models/review.model";
 import {
   ReviewResponse,
-  CreateReviewRequest,
   SimpleReviewRequest,
   PaginationOptions,
   ReviewFilters,

@@ -58,14 +58,14 @@ export class ReportController {
       // Prepare base report data
       const baseData = {
         reporterId: new Types.ObjectId(req.userId),
-        reporterType: req.user?.systemRole || UserRole.CUSTOMER,
+        reporterType: req.user?.systemRole || UserRole,
         reportType,
         reason: reportData.reason,
         customReason: reportData.customReason,
         description: reportData.description,
         evidence: reportData.evidence || [],
         severity: reportData.severity || "moderate",
-        // Priority and category will be auto-assigned by pre-save middleware
+        // Priority and category to be auto-assigned by pre-save middleware
       };
 
       // Validate required base fields

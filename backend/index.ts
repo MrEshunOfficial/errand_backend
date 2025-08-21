@@ -8,7 +8,7 @@ import clientProfileRoutes from "./routes/clientProfile.routes.js";
 import providerProfileRoutes from "./routes/providerProfile.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
-import reportRoutes from "./routes/report.routes.js"; // Add this import
+import reportRoutes from "./routes/report.routes.js";
 import { connectDB } from "./database/connectDB";
 import authRoutes from "./routes/auth.routes.js";
 import warningRoutes from "./routes/warning.routes.js";
@@ -48,7 +48,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/services", serviceRoutes);
 app.use("/api/warnings", warningRoutes);
 app.use("/api/reviews", reviewRoutes);
-app.use("/api/reports", reportRoutes); // Add this line
+app.use("/api/reports", reportRoutes);
 
 // Static file serving
 app.use("/uploads", express.static("uploads"));

@@ -62,7 +62,7 @@ router.post("/refresh-token", authenticateToken, refreshToken);
 router.delete("/account", authenticateToken, deleteAccount);
 router.post("/restore-account", restoreAccount);
 
-// User profile routes
+// User profile routes 
 router.get("/me", authenticateToken, (req, res) => {
   res.json({
     message: "User profile retrieved successfully",
