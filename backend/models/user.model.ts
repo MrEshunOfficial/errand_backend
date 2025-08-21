@@ -1,7 +1,14 @@
 // models/user.model.ts
 import mongoose, { Schema, Model } from "mongoose";
-import { ProfilePicture, ModerationStatus, IUserDocument, IUser, AuthProvider, SystemRole, UserStatus } from "../types";
-
+import {
+  ProfilePicture,
+  ModerationStatus,
+  IUserDocument,
+  IUser,
+  AuthProvider,
+  SystemRole,
+  UserStatus,
+} from "../types";
 
 const profilePictureSchema = new Schema<ProfilePicture>(
   {
@@ -279,7 +286,9 @@ userSchema.methods.softDelete = function (
   return this.save();
 };
 
-userSchema.methods.restore = function (this: IUserDocument): Promise<IUserDocument> {
+userSchema.methods.restore = function (
+  this: IUserDocument
+): Promise<IUserDocument> {
   this.isDeleted = false;
   this.deletedAt = undefined;
   this.deletedBy = undefined;
@@ -289,4 +298,7 @@ userSchema.methods.restore = function (this: IUserDocument): Promise<IUserDocume
 // Create the model with proper typing
 interface UserModel extends Model<IUserDocument> {}
 
-export const User: UserModel = mongoose.model<IUserDocument>("User", userSchema);
+export const User: UserModel = mongoose.model<IUserDocument>(
+  "User",
+  userSchema
+);

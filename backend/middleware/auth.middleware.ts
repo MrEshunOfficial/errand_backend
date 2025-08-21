@@ -13,7 +13,7 @@ export const authenticateToken = async (
     // Check if cookies object exists
     console.log("Cookies object:", req.cookies);
     console.log("Authorization header:", req.headers.authorization);
-    
+
     // Get token from cookies (if cookies exist) or Authorization header
     let token: string | undefined;
     if (req.cookies && req.cookies.token) {
@@ -24,18 +24,18 @@ export const authenticateToken = async (
         token = authHeader.split(" ")[1];
       }
     }
-    
+
     if (!token) {
       res.status(401).json({ message: "Access token required" });
       return;
     }
-    
+
     // Verify JWT secret exists
     if (!process.env.JWT_SECRET) {
       res.status(500).json({ message: "Internal server error" });
       return;
     }
-    
+
     // Verify token
     let decoded: { userId: string };
     try {
@@ -48,19 +48,19 @@ export const authenticateToken = async (
       });
       return;
     }
-    
+
     // Find user
     const user = await User.findById(decoded.userId);
     console.log("User found:", user ? "Yes" : "No");
-    
+
     if (!user) {
       res.status(401).json({ message: "Invalid token - user not found" });
       return;
     }
-    
+
     req.userId = decoded.userId;
     req.user = user;
-    
+
     next();
   } catch (error) {
     res.status(401).json({
@@ -106,4 +106,3 @@ export const requireSuperAdmin = (
   }
   next();
 };
-
