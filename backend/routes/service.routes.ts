@@ -1,34 +1,26 @@
 // routes/service.routes.ts
 import express from "express";
-import { 
-  authenticateToken, 
-  requireAdmin 
-} from "../middleware/auth.middleware";
+import { authenticateToken, requireAdmin } from "../middleware/auth.middleware";
 import { ServiceController } from "../controllers/service.controller";
 
 const router = express.Router();
-
 
 // ===================================================================
 // AUTHENTICATED SERVICE ROUTES - Authentication required
 // ===================================================================
 
 // Get services created by the current authenticated user
-router.get("/my-services", authenticateToken, ServiceController.getUserServices);
+router.get(
+  "/my-services",
+  authenticateToken,
+  ServiceController.getUserServices
+);
 
 // Create new service (authenticated users can create services)
-router.post(
-  "/", 
-  authenticateToken, 
-  ServiceController.createService as any
-);
+router.post("/", authenticateToken, ServiceController.createService as any);
 
 // Update service (users can update their own services)
-router.put(
-  "/:id", 
-  authenticateToken, 
-  ServiceController.updateService as any
-);
+router.put("/:id", authenticateToken, ServiceController.updateService as any);
 
 // Soft delete service (users can delete their own services)
 router.delete(
@@ -73,7 +65,6 @@ router.patch(
   ServiceController.rejectService as any
 );
 
-
 // ===================================================================
 // PUBLIC SERVICE ROUTES - No authentication required
 // ===================================================================
@@ -90,12 +81,11 @@ router.get("/with-pricing", ServiceController.getServicesWithPricing);
 
 // Get pending services (admin only - for moderation)
 router.get(
-  "/pending", 
-  authenticateToken, 
+  "/pending",
+  authenticateToken,
   requireAdmin,
   ServiceController.getPendingServices
 );
-
 
 // Get services by category (parameterized route)
 router.get("/category/:categoryId", ServiceController.getServicesByCategory);

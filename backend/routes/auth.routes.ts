@@ -62,7 +62,7 @@ router.post("/refresh-token", authenticateToken, refreshToken);
 router.delete("/account", authenticateToken, deleteAccount);
 router.post("/restore-account", restoreAccount);
 
-// User profile routes 
+// User profile routes
 router.get("/me", authenticateToken, (req, res) => {
   res.json({
     message: "User profile retrieved successfully",
@@ -74,75 +74,127 @@ router.get("/me", authenticateToken, (req, res) => {
 router.get("/status", authenticateToken, (req, res) => {
   res.json({
     isAuthenticated: true,
-    user: req.user ? {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      isVerified: req.user.isVerified,
-      isAdmin: req.user.isAdmin,
-      isSuperAdmin: req.user.isSuperAdmin,
-      systemRole: req.user.systemRole,
-      provider: req.user.provider,
-      avatar: req.user.avatar,
-      lastLogin: req.user.lastLogin,
-      status: req.user.status,
-    } : null,
+    user: req.user
+      ? {
+          id: req.user._id,
+          name: req.user.name,
+          email: req.user.email,
+          isVerified: req.user.isVerified,
+          isAdmin: req.user.isAdmin,
+          isSuperAdmin: req.user.isSuperAdmin,
+          systemRole: req.user.systemRole,
+          provider: req.user.provider,
+          avatar: req.user.avatar,
+          lastLogin: req.user.lastLogin,
+          status: req.user.status,
+        }
+      : null,
   });
 });
 
 // Access verification routes (simplified)
-router.get("/verify-access/verified", authenticateToken, requireVerification, (req, res) => {
-  res.json({
-    message: "User has verified email access",
-    verified: true,
-    user: {
-      id: req.user?._id,
-      email: req.user?.email,
-      isVerified: req.user?.isVerified,
-    },
-  });
-});
+router.get(
+  "/verify-access/verified",
+  authenticateToken,
+  requireVerification,
+  (req, res) => {
+    res.json({
+      message: "User has verified email access",
+      verified: true,
+      user: {
+        id: req.user?._id,
+        email: req.user?.email,
+        isVerified: req.user?.isVerified,
+      },
+    });
+  }
+);
 
-router.get("/verify-access/admin", authenticateToken, requireAdmin, (req, res) => {
-  res.json({
-    message: "User has admin access",
-    isAdmin: true,
-    user: {
-      id: req.user?._id,
-      name: req.user?.name,
-      email: req.user?.email,
-      isAdmin: req.user?.isAdmin,
-      systemRole: req.user?.systemRole,
-    },
-  });
-});
+router.get(
+  "/verify-access/admin",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => {
+    res.json({
+      message: "User has admin access",
+      isAdmin: true,
+      user: {
+        id: req.user?._id,
+        name: req.user?.name,
+        email: req.user?.email,
+        isAdmin: req.user?.isAdmin,
+        systemRole: req.user?.systemRole,
+      },
+    });
+  }
+);
 
-router.get("/verify-access/super-admin", authenticateToken, requireSuperAdmin, (req, res) => {
-  res.json({
-    message: "User has super admin access",
-    isSuperAdmin: true,
-    user: {
-      id: req.user?._id,
-      name: req.user?.name,
-      email: req.user?.email,
-      isSuperAdmin: req.user?.isSuperAdmin,
-      systemRole: req.user?.systemRole,
-      systemAdminName: req.user?.systemAdminName,
-    },
-  });
-});
+router.get(
+  "/verify-access/super-admin",
+  authenticateToken,
+  requireSuperAdmin,
+  (req, res) => {
+    res.json({
+      message: "User has super admin access",
+      isSuperAdmin: true,
+      user: {
+        id: req.user?._id,
+        name: req.user?.name,
+        email: req.user?.email,
+        isSuperAdmin: req.user?.isSuperAdmin,
+        systemRole: req.user?.systemRole,
+        systemAdminName: req.user?.systemAdminName,
+      },
+    });
+  }
+);
 
 // Admin routes - User management
 router.get("/admin/users", authenticateToken, requireAdmin, getAllUsers);
-router.get("/admin/users/:userId", authenticateToken, requireAdmin, getUserById);
-router.patch("/admin/users/:userId/status", authenticateToken, requireAdmin, updateUserStatus);
-router.patch("/admin/users/:userId/moderate", authenticateToken, requireAdmin, moderateUser);
-router.get("/admin/stats/moderation", authenticateToken, requireAdmin, getModerationStats);
+router.get(
+  "/admin/users/:userId",
+  authenticateToken,
+  requireAdmin,
+  getUserById
+);
+router.patch(
+  "/admin/users/:userId/status",
+  authenticateToken,
+  requireAdmin,
+  updateUserStatus
+);
+router.patch(
+  "/admin/users/:userId/moderate",
+  authenticateToken,
+  requireAdmin,
+  moderateUser
+);
+router.get(
+  "/admin/stats/moderation",
+  authenticateToken,
+  requireAdmin,
+  getModerationStats
+);
 
 // Super Admin routes
-router.patch("/admin/users/:userId/role", authenticateToken, requireSuperAdmin, updateUserRole);
-router.delete("/admin/users/:userId", authenticateToken, requireSuperAdmin, deleteUser);
-router.post("/admin/users/:userId/restore", authenticateToken, requireSuperAdmin, restoreUser);
+router.patch(
+  "/admin/users/:userId/role",
+  authenticateToken,
+  requireSuperAdmin,
+  updateUserRole
+);
+router.delete(
+  "/admin/users/:userId",
+  authenticateToken,
+  requireSuperAdmin,
+  deleteUser
+);
+router.post(
+  "/admin/users/:userId/restore",
+  authenticateToken,
+  requireSuperAdmin,
+  restoreUser
+);
 
 // Health check route
 router.get("/health", (req, res) => {

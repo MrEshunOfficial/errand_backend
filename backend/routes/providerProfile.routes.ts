@@ -1,9 +1,9 @@
 // routes/providerProfile.routes.ts
 import express from "express";
-import { 
-  authenticateToken, 
+import {
+  authenticateToken,
   requireAdmin,
-  requireSuperAdmin 
+  requireSuperAdmin,
 } from "../middleware/auth.middleware.js";
 import ProviderProfileController from "../controllers/providerProfile.controller.js";
 
@@ -16,7 +16,10 @@ const router = express.Router();
 
 // Public provider search and discovery - MOST SPECIFIC FIRST
 router.get("/public/search", ProviderProfileController.searchPublicProviders);
-router.get("/public/browse", ProviderProfileController.getPublicProviderProfiles);
+router.get(
+  "/public/browse",
+  ProviderProfileController.getPublicProviderProfiles
+);
 
 // Public individual provider profile - PARAMETERIZED ROUTES LAST
 router.get("/public/:id", ProviderProfileController.getPublicProviderProfile);
@@ -36,26 +39,62 @@ router.put("/", ProviderProfileController.updateMyProviderProfile as any);
 // ===================================================================
 // CURRENT USER'S PROVIDER SUB-RESOURCE MANAGEMENT - SPECIFIC NESTED ROUTES
 // ===================================================================
-router.patch("/toggle-availability", ProviderProfileController.toggleMyAvailability as any);
-router.post("/service-offerings", ProviderProfileController.addMyServiceOffering as any);
-router.delete("/service-offerings", ProviderProfileController.removeMyServiceOffering as any);
-router.patch("/working-hours", ProviderProfileController.updateMyWorkingHours as any);
+router.patch(
+  "/toggle-availability",
+  ProviderProfileController.toggleMyAvailability as any
+);
+router.post(
+  "/service-offerings",
+  ProviderProfileController.addMyServiceOffering as any
+);
+router.delete(
+  "/service-offerings",
+  ProviderProfileController.removeMyServiceOffering as any
+);
+router.patch(
+  "/working-hours",
+  ProviderProfileController.updateMyWorkingHours as any
+);
 
 // ===================================================================
 // PROVIDER STATISTICS AND ANALYTICS ROUTES (Super Admin only)
 // ===================================================================
 // CRITICAL: These MUST come before any parameterized routes
-router.get("/statistics", requireSuperAdmin, ProviderProfileController.getProviderStatistics);
+router.get(
+  "/statistics",
+  requireSuperAdmin,
+  ProviderProfileController.getProviderStatistics
+);
 
 // ===================================================================
 // PROVIDER DISCOVERY AND FILTERING ROUTES (Admin only)
 // ===================================================================
 // SPECIFIC DISCOVERY ROUTES - Before parameterized routes
-router.get("/all", requireAdmin, ProviderProfileController.getAllProviderProfiles);
-router.get("/available", requireAdmin, ProviderProfileController.getAvailableProviders);
-router.get("/top-rated", requireAdmin, ProviderProfileController.getTopRatedProviders);
-router.get("/high-risk", requireAdmin, ProviderProfileController.getHighRiskProviders);
-router.get("/overdue-assessments", requireAdmin, ProviderProfileController.getOverdueRiskAssessments);
+router.get(
+  "/all",
+  requireAdmin,
+  ProviderProfileController.getAllProviderProfiles
+);
+router.get(
+  "/available",
+  requireAdmin,
+  ProviderProfileController.getAvailableProviders
+);
+router.get(
+  "/top-rated",
+  requireAdmin,
+  ProviderProfileController.getTopRatedProviders
+);
+router.get(
+  "/high-risk",
+  requireAdmin,
+  ProviderProfileController.getHighRiskProviders
+);
+router.get(
+  "/overdue-assessments",
+  requireAdmin,
+  ProviderProfileController.getOverdueRiskAssessments
+);
 
 // ===================================================================
 // PROVIDER BULK OPERATIONS (Super Admin only)
@@ -93,9 +132,21 @@ router.get(
 // PROVIDER ADMIN ROUTES BY ID - Generic parameterized routes
 // ===================================================================
 // BASIC CRUD - Single parameter routes
-router.get("/:id", requireAdmin, ProviderProfileController.getProviderProfileById);
-router.put("/:id", requireAdmin, ProviderProfileController.updateProviderProfile);
-router.delete("/:id", requireAdmin, ProviderProfileController.deleteProviderProfile);
+router.get(
+  "/:id",
+  requireAdmin,
+  ProviderProfileController.getProviderProfileById
+);
+router.put(
+  "/:id",
+  requireAdmin,
+  ProviderProfileController.updateProviderProfile
+);
+router.delete(
+  "/:id",
+  requireAdmin,
+  ProviderProfileController.deleteProviderProfile
+);
 
 // ===================================================================
 // PROVIDER SUB-RESOURCE MANAGEMENT (Admin only)
@@ -120,7 +171,11 @@ router.patch(
   requireAdmin,
   ProviderProfileController.updatePerformanceMetrics
 );
-router.post("/:id/penalties", requireAdmin, ProviderProfileController.addPenalty);
+router.post(
+  "/:id/penalties",
+  requireAdmin,
+  ProviderProfileController.addPenalty
+);
 
 // Provider working hours management
 router.patch(
@@ -138,7 +193,11 @@ router.patch(
   requireAdmin,
   ProviderProfileController.updateRiskAssessment
 );
-router.get("/:id/risk-score", requireAdmin, ProviderProfileController.getProviderRiskScore);
+router.get(
+  "/:id/risk-score",
+  requireAdmin,
+  ProviderProfileController.getProviderRiskScore
+);
 router.get(
   "/:id/risk-history",
   requireAdmin,
@@ -154,7 +213,11 @@ router.patch(
 // PROVIDER SERVICE OFFERING MANAGEMENT (Admin only)
 // ===================================================================
 // MOST SPECIFIC ROUTES - Multiple parameters
-router.post("/:id/service-offerings", requireAdmin, ProviderProfileController.addServiceOffering);
+router.post(
+  "/:id/service-offerings",
+  requireAdmin,
+  ProviderProfileController.addServiceOffering
+);
 router.delete(
   "/:id/service-offerings/:serviceId",
   requireAdmin,

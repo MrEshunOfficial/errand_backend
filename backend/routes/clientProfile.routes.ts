@@ -1,7 +1,7 @@
 // routes/clientProfile.routes.ts
 import express from "express";
-import { 
-  authenticateToken, 
+import {
+  authenticateToken,
   requireAdmin,
 } from "../middleware/auth.middleware.js";
 import ClientProfileController from "../controllers/clientProfile.controller.js";
@@ -14,10 +14,16 @@ const router = express.Router();
 // CRITICAL: These routes must come BEFORE router.use(authenticateToken)
 
 // Public client verification status - MOST SPECIFIC FIRST
-router.get("/public/:id/verification", ClientProfileController.getClientVerificationStatus);
+router.get(
+  "/public/:id/verification",
+  ClientProfileController.getClientVerificationStatus
+);
 
 // Public client profile by profile ID - SPECIFIC PATTERN
-router.get("/public/by-profile/:profileId", ClientProfileController.getPublicClientProfileByProfileId);
+router.get(
+  "/public/by-profile/:profileId",
+  ClientProfileController.getPublicClientProfileByProfileId
+);
 
 // Public individual client profile - PARAMETERIZED ROUTES LAST
 router.get("/public/:id", ClientProfileController.getPublicClientProfile);
@@ -39,7 +45,11 @@ router.put("/", ClientProfileController.updateMyClientProfile);
 // ADMIN CLIENT PROFILE DISCOVERY ROUTES - SPECIFIC ROUTES BEFORE PARAMETERIZED
 // ===================================================================
 router.get("/all", requireAdmin, ClientProfileController.getAllClientProfiles);
-router.get("/high-risk", requireAdmin, ClientProfileController.getHighRiskClients);
+router.get(
+  "/high-risk",
+  requireAdmin,
+  ClientProfileController.getHighRiskClients
+);
 
 // ===================================================================
 // CLIENT PROFILE MANAGEMENT BY PROFILE ID - SPECIFIC PATTERN BEFORE GENERIC :id
@@ -55,7 +65,11 @@ router.get(
 // ===================================================================
 router.get("/:id", requireAdmin, ClientProfileController.getClientProfileById);
 router.put("/:id", requireAdmin, ClientProfileController.updateClientProfile);
-router.delete("/:id", requireAdmin, ClientProfileController.deleteClientProfile);
+router.delete(
+  "/:id",
+  requireAdmin,
+  ClientProfileController.deleteClientProfile
+);
 
 // ===================================================================
 // SPECIALIZED CLIENT PROFILE ROUTES WITH MULTIPLE PARAMETERS - MOST SPECIFIC LAST

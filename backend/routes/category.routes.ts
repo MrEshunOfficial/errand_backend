@@ -1,9 +1,6 @@
 // routes/category.routes.ts
 import express from "express";
-import { 
-  authenticateToken, 
-  requireAdmin 
-} from "../middleware/auth.middleware";
+import { authenticateToken, requireAdmin } from "../middleware/auth.middleware";
 import { CategoryController } from "../controllers/category.controller";
 
 const router = express.Router();
@@ -39,16 +36,16 @@ router.get("/:id", CategoryController.getCategoryById);
 
 // Create new category (admin only)
 router.post(
-  "/", 
-  authenticateToken, 
+  "/",
+  authenticateToken,
   requireAdmin,
   CategoryController.createCategory as any
 );
 
 // Update category (admin only)
 router.put(
-  "/:id", 
-  authenticateToken, 
+  "/:id",
+  authenticateToken,
   requireAdmin,
   CategoryController.updateCategory as any
 );

@@ -41,8 +41,8 @@ import {
   // Profile activity tracking
   getProfileActivitySummary,
 } from "../controllers/profile.controller.js";
-import { 
-  authenticateToken, 
+import {
+  authenticateToken,
   requireAdmin,
 } from "../middleware/auth.middleware.js";
 
@@ -67,14 +67,30 @@ router.get("/by-location", getProfilesByLocation as any);
 // ===================================================================
 router.get("/all", requireAdmin, getAllProfiles as any);
 router.get("/incomplete", requireAdmin, getIncompleteProfiles as any);
-router.get("/marketplace-active", requireAdmin, getMarketplaceActiveProfiles as any);
-router.get("/pending-moderation", requireAdmin, getPendingModerationProfiles as any);
+router.get(
+  "/marketplace-active",
+  requireAdmin,
+  getMarketplaceActiveProfiles as any
+);
+router.get(
+  "/pending-moderation",
+  requireAdmin,
+  getPendingModerationProfiles as any
+);
 
 // ===================================================================
 // PROFILE BULK OPERATIONS (Admin only)
 // ===================================================================
-router.post("/recalculate-completeness", requireAdmin, recalculateProfileCompleteness as any);
-router.post("/recalculate-completeness/:userId", requireAdmin, recalculateProfileCompleteness as any);
+router.post(
+  "/recalculate-completeness",
+  requireAdmin,
+  recalculateProfileCompleteness as any
+);
+router.post(
+  "/recalculate-completeness/:userId",
+  requireAdmin,
+  recalculateProfileCompleteness as any
+);
 
 // ===================================================================
 // CURRENT USER PROFILE ROUTES - SPECIFIC ROUTES FIRST
@@ -117,14 +133,26 @@ router.delete("/social-media/:handleId", removeSocialMediaHandle as any);
 // ===================================================================
 // SPECIFIC STATUS PATTERN ROUTES - Before generic parameterized routes
 router.get("/by-status/:status", requireAdmin, getProfilesByStatus as any);
-router.get("/by-verification-status/:status", requireAdmin, getProfilesByVerificationStatus as any);
-router.get("/by-moderation-status/:status", requireAdmin, getProfilesByModerationStatus as any);
+router.get(
+  "/by-verification-status/:status",
+  requireAdmin,
+  getProfilesByVerificationStatus as any
+);
+router.get(
+  "/by-moderation-status/:status",
+  requireAdmin,
+  getProfilesByModerationStatus as any
+);
 
 // ===================================================================
 // ADMIN PROFILE MANAGEMENT ROUTES
 // ===================================================================
 // ADMIN VERIFICATION AND MODERATION ROUTES
-router.patch("/verification-status", requireAdmin, updateVerificationStatus as any);
+router.patch(
+  "/verification-status",
+  requireAdmin,
+  updateVerificationStatus as any
+);
 router.patch("/moderation-status", requireAdmin, updateModerationStatus as any);
 router.post("/moderate-content", requireAdmin, moderateProfileContent as any);
 
