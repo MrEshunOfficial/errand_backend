@@ -16,6 +16,7 @@ import {
   UpdatePreferenceRequest,
   PreferenceCategory,
   BulkUpdatePreferenceRequest,
+  ProfilePicture,
 } from "../types/base.types.js";
 import { IUserProfile } from "../types/profile.types.js";
 
@@ -25,7 +26,6 @@ const createCleanUserResponse = (user: IUser): Partial<IUser> => ({
   email: user.email,
   name: user.name,
   systemAdminName: user.systemAdminName,
-  avatar: user.avatar,
   systemRole: user.systemRole,
   provider: user.provider,
   lastLogin: user.lastLogin,
@@ -1083,5 +1083,148 @@ export const getProfileActivitySummary = asyncHandler(async (req: AuthenticatedR
   res.status(200).json({
     message: "Profile activity summary retrieved successfully",
     data: summary
+  });
+});
+
+// ===================================================================
+// PROFILE PICTURE MANAGEMENT CONTROLLERS
+// ===================================================================
+
+export const updateProfilePicture = asyncHandler(async (
+  req: Request<{}, AuthResponse, { profilePicture: ProfilePicture }> & AuthenticatedRequest,
+  res: Response<AuthResponse>
+) => {
+  const userId = validateAuth(req, res);
+  if (!userId) return;
+
+  const { profilePicture } = req.body;
+  if (!profilePicture) {
+    return res.status(400).json({ 
+      message: "Profile picture data is required" 
+    });
+  }
+
+  // Validate required fields
+  if (!profilePicture.url || !profilePicture.fileName) {
+    return res.status(400).json({
+      message: "Profile picture URL and filename are required"
+    });
+  }
+
+  // Optional: Add file size limit validation (e.g., 5MB)
+  const maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
+  if (profilePicture.fileSize && profilePicture.fileSize > maxFileSize) {
+    return res.status(400).json({
+      message: "Profile picture file size cannot exceed 5MB"
+    });
+  }
+
+  // Optional: Validate MIME type for images
+  const allowedMimeTypes = [
+    'image/jpeg', 
+    'image/jpg', 
+    'image/png', 
+    'image/webp', 
+    'image/gif'
+  ];
+  if (profilePicture.mimeType && !allowedMimeTypes.includes(profilePicture.mimeType)) {
+    return res.status(400).json({
+      message: "Invalid image format. Only JPEG, PNG, WebP, and GIF are allowed"
+    });
+  }
+
+  // Set upload timestamp if not provided
+  const profilePictureData: ProfilePicture = {
+    ...profilePicture,
+    uploadedAt: profilePicture.uploadedAt || new Date()
+  };
+
+  const [user, profile] = await Promise.all([
+    User.findById(userId).lean() as Promise<IUser | null>,
+    Profile.findOneAndUpdate(
+      { userId },
+      { 
+        $set: { 
+          profilePicture: profilePictureData,
+          lastModified: new Date()
+        }
+      },
+      { new: true, runValidators: true, upsert: true, lean: true }
+    )
+  ]);
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  res.status(200).json(
+    createSuccessResponse(
+      user, 
+      profile, 
+      "Profile picture updated successfully",
+      { profilePicture: profilePictureData }
+    )
+  );
+});
+
+export const removeProfilePicture = asyncHandler(async (
+  req: AuthenticatedRequest,
+  res: Response<AuthResponse>
+) => {
+  const userId = validateAuth(req, res);
+  if (!userId) return;
+
+  const [user, profile] = await Promise.all([
+    User.findById(userId).lean() as Promise<IUser | null>,
+    Profile.findOneAndUpdate(
+      { userId },
+      { 
+        $unset: { profilePicture: 1 },
+        $set: { lastModified: new Date() }
+      },
+      { new: true, lean: true }
+    )
+  ]);
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  if (!profile) {
+    return res.status(404).json({ message: "Profile not found" });
+  }
+
+  res.status(200).json(
+    createSuccessResponse(
+      user, 
+      profile, 
+      "Profile picture removed successfully"
+    )
+  );
+});
+
+export const getProfilePicture = asyncHandler(async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = validateAuth(req, res);
+  if (!userId) return;
+
+  const profile = await Profile.findOne({ userId }).lean() as IUserProfile | null;
+  if (!profile) {
+    return res.status(404).json({ message: "Profile not found" });
+  }
+
+  if (!profile.profilePicture) {
+    return res.status(404).json({ 
+      message: "No profile picture found",
+      hasProfilePicture: false 
+    });
+  }
+
+  res.status(200).json({
+    message: "Profile picture retrieved successfully",
+    profilePicture: profile.profilePicture,
+    hasProfilePicture: true
   });
 });

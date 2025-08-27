@@ -31,8 +31,8 @@ interface IUserProfileDocument extends Omit<IUserProfile, "_id">, Document {
 // File Reference Schema
 const fileReferenceSchema = new Schema<FileReference>(
   {
-    url: { type: String, required: true, trim: true },
-    fileName: { type: String, required: true, trim: true },
+    // url: { type: String, required: true, trim: true },
+    // fileName: { type: String, required: true, trim: true },
     fileSize: { type: Number },
     mimeType: { type: String, trim: true },
     uploadedAt: { type: Date, default: Date.now },

@@ -10,17 +10,6 @@ import {
   UserStatus,
 } from "../types";
 
-const profilePictureSchema = new Schema<ProfilePicture>(
-  {
-    url: { type: String, required: true },
-    fileName: { type: String, required: true },
-    fileSize: { type: Number },
-    mimeType: { type: String },
-    uploadedAt: { type: Date, default: Date.now },
-  },
-  { _id: false }
-);
-
 const userSecuritySchema = new Schema(
   {
     lastLoginAt: { type: Date },
@@ -117,18 +106,10 @@ const userSchema = new Schema<IUserDocument>(
       type: String,
       sparse: true,
     },
-
-    // Profile and avatar - updated to use ProfilePicture type
-    avatar: {
-      type: profilePictureSchema,
-      default: null,
-    },
     profileId: {
       type: Schema.Types.ObjectId,
       ref: "UserProfile",
     },
-
-    // Admin fields
     systemAdminName: {
       type: String,
       default: null,

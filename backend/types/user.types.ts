@@ -4,7 +4,6 @@ import { Request } from "express";
 import {
   BaseEntity,
   SoftDeletable,
-  ProfilePicture,
   SystemRole,
   UserStatus,
   AuthProvider,
@@ -44,8 +43,6 @@ export interface IUser extends BaseEntity, SoftDeletable {
 
   provider: AuthProvider;
   providerId?: string;
-
-  avatar?: ProfilePicture;
   profileId?: Types.ObjectId;
 
   // Admin fields
@@ -130,7 +127,6 @@ export interface ResendVerificationRequestBody {
 
 export interface UpdateProfileRequestBody {
   name?: string;
-  avatar?: string | ProfilePicture;
   profile?: Partial<IUserProfile>;
 }
 
@@ -157,3 +153,4 @@ export interface AuthResponse {
   email?: string;
   error?: string;
 }
+

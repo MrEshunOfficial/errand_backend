@@ -46,8 +46,6 @@ export interface IUserProfile extends BaseEntity, SoftDeletable {
   
   // Add the missing warnings field
   warnings?: ProfileWarning[];
-  
-  // Additional fields that might be missing from your interface but exist in the model
   verificationReason?: string;
   moderationReason?: string;
   verificationInitiatedAt?: Date;

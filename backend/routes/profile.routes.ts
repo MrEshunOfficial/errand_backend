@@ -14,6 +14,10 @@ import {
   deleteProfile,
   restoreProfile,
   updateMarketplaceStatus,
+  // Profile picture management
+  updateProfilePicture,
+  removeProfilePicture,
+  getProfilePicture,
   // Admin profile management controllers
   updateVerificationStatus,
   updateModerationStatus,
@@ -101,6 +105,13 @@ router.get("/batch-operations", batchProfileOperations as any);
 router.get("/activity-summary", getProfileActivitySummary as any);
 router.get("/export", exportProfileData as any);
 
+// ===================================================================
+// PROFILE PICTURE MANAGEMENT ROUTES - SPECIFIC BEFORE BASE ROUTES
+// ===================================================================
+router.get("/profile-picture", getProfilePicture as any);
+router.put("/profile-picture", updateProfilePicture as any);
+router.delete("/profile-picture", removeProfilePicture as any);
+
 // Current user profile management - BASE ROUTES
 router.get("/", getProfile as any);
 router.put("/", updateProfile as any);
@@ -144,10 +155,6 @@ router.get(
   getProfilesByModerationStatus as any
 );
 
-// ===================================================================
-// ADMIN PROFILE MANAGEMENT ROUTES
-// ===================================================================
-// ADMIN VERIFICATION AND MODERATION ROUTES
 router.patch(
   "/verification-status",
   requireAdmin,
