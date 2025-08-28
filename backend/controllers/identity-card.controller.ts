@@ -21,19 +21,7 @@ interface IdDetailsResponse {
 }
 
 interface UpdateIdDetailsRequestBody {
-  idDetails: IdDetails;
-}
-
-interface UpdateIdTypeRequestBody {
-  idType: idType;
-}
-
-interface UpdateIdNumberRequestBody {
-  idNumber: string;
-}
-
-interface UpdateIdFileRequestBody {
-  idFile: FileReference;
+  idDetails: Partial<IdDetails>;
 }
 
 interface ValidationResult {
@@ -43,72 +31,56 @@ interface ValidationResult {
   errors: string[];
 }
 
+interface AuditLog {
+  userId: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW';
+  field?: keyof IdDetails;
+  oldValue?: any;
+  newValue?: any;
+  timestamp: Date;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 // ===================================================================
-// HELPER FUNCTIONS
+// VALIDATION RULES - FIXED TO USE ENUM VALUES AS KEYS
 // ===================================================================
 
-const createCleanUserResponse = (user: IUser): Partial<IUser> => ({
-  _id: user._id,
-  email: user.email,
-  name: user.name,
-  systemAdminName: user.systemAdminName,
-  systemRole: user.systemRole,
-  provider: user.provider,
-  lastLogin: user.lastLogin,
-  createdAt: user.createdAt,
-  isVerified: user.isVerified,
-  isAdmin: user.isAdmin,
-  isSuperAdmin: user.isSuperAdmin,
-  updatedAt: user.updatedAt,
-  status: user.status,
-  displayName: user.displayName,
-});
-
-const createCleanProfileResponse = (
-  profile: any
-): Partial<IUserProfile> | null => {
-  if (!profile) return null;
-  const profileObj = profile.toObject ? profile.toObject() : profile;
-  return {
-    _id: profileObj._id,
-    userId: profileObj.userId,
-    role: profileObj.role,
-    bio: profileObj.bio,
-    location: profileObj.location,
-    preferences: profileObj.preferences,
-    socialMediaHandles: profileObj.socialMediaHandles,
-    contactDetails: profileObj.contactDetails,
-    idDetails: profileObj.idDetails,
-    profilePicture: profileObj.profilePicture,
-    verificationStatus: profileObj.verificationStatus,
-    moderationStatus: profileObj.moderationStatus,
-    warningsCount: profileObj.warningsCount,
-    completeness: profileObj.completeness,
-    isActiveInMarketplace: profileObj.isActiveInMarketplace,
-    createdAt: profileObj.createdAt,
-    updatedAt: profileObj.updatedAt,
-    lastModified: profileObj.lastModified,
-    isDeleted: profileObj.isDeleted,
-    deletedAt: profileObj.deletedAt,
-    deletedBy: profileObj.deletedBy,
-  };
+const ID_FORMATS: Record<string, RegExp> = {
+  [idType.NATIONAL_ID]: /^GHA-\d{9}-\d$/,
+  [idType.PASSPORT]: /^G\d{7}$/,
+  [idType.VOTERS_ID]: /^\d{10}$/,
+  [idType.DRIVERS_LICENSE]: /^[A-Z]{2}\d{7}$/,
+  [idType.NHIS]: /^\d{10}$/,
+  [idType.OTHER]: /.+/ // Generic validation for other types
 };
 
-const asyncHandler = (fn: Function) => (req: Request, res: Response) => {
+const ALLOWED_FILE_TYPES: Record<string, string[]> = {
+  [idType.NATIONAL_ID]: ['image/jpeg', 'image/png', 'application/pdf'],
+  [idType.PASSPORT]: ['image/jpeg', 'image/png'],
+  [idType.VOTERS_ID]: ['image/jpeg', 'image/png', 'application/pdf'],
+  [idType.DRIVERS_LICENSE]: ['image/jpeg', 'image/png'],
+  [idType.NHIS]: ['image/jpeg', 'image/png', 'application/pdf'],
+  [idType.OTHER]: ['image/jpeg', 'image/png', 'application/pdf', 'image/webp', 'image/tiff']
+};
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_ID_NUMBER_LENGTH = 50;
+
+// ===================================================================
+// UTILITY FUNCTIONS
+// ===================================================================
+
+const asyncHandler = (fn: Function) => (req: Request, res: Response) => 
   Promise.resolve(fn(req, res)).catch((error) => {
     console.error("ID Details Controller error:", error);
-    const isValidationError = error?.name === "ValidationError";
-    res.status(isValidationError ? 400 : 500).json({
-      message: isValidationError ? "Validation error" : "Internal server error",
+    res.status(error?.name === "ValidationError" ? 400 : 500).json({
+      message: error?.name === "ValidationError" ? "Validation error" : "Internal server error",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   });
-};
 
-const validateAuth = (
-  req: AuthenticatedRequest,
-  res: Response
-): string | null => {
+const validateAuth = (req: AuthenticatedRequest, res: Response): string | null => {
   if (!req.userId) {
     res.status(401).json({ message: "User ID not found in request" });
     return null;
@@ -116,58 +88,148 @@ const validateAuth = (
   return req.userId;
 };
 
-const createSuccessResponse = (
-  user: IUser | null,
-  profile: any,
-  message: string,
+const createResponse = (
+  user: IUser | null, 
+  profile: any, 
+  message: string, 
   additionalData: any = {}
 ): IdDetailsResponse => ({
   message,
-  user: user ? createCleanUserResponse(user) : undefined,
-  profile: createCleanProfileResponse(profile),
+  user: user ? {
+    _id: user._id,
+    email: user.email,
+    name: user.name,
+    displayName: user.displayName
+  } : undefined,
+  profile: profile ? {
+    _id: profile._id,
+    userId: profile.userId,
+    idDetails: profile.idDetails,
+    completeness: profile.completeness,
+    lastModified: profile.lastModified
+  } : undefined,
   ...additionalData,
 });
 
-const findUserAndProfile = async (userId: string) => {
-  return Promise.all([
-    User.findById(userId).lean() as Promise<IUser | null>,
-    Profile.findOne({ userId }).lean() as Promise<IUserProfile | null>,
-  ]);
+const findUserAndProfile = async (userId: string) => Promise.all([
+  User.findById(userId).lean() as Promise<IUser | null>,
+  Profile.findOne({ userId }).lean() as Promise<IUserProfile | null>,
+]);
+
+// ===================================================================
+// VALIDATION FUNCTIONS - FIXED
+// ===================================================================
+
+const validateIdNumber = (idTypeValue: string, idNumber: string): string[] => {
+  const errors: string[] = [];
+  
+  if (!idNumber?.trim()) {
+    errors.push("ID number is required");
+    return errors;
+  }
+  
+  if (idNumber.trim().length > MAX_ID_NUMBER_LENGTH) {
+    errors.push(`ID number cannot exceed ${MAX_ID_NUMBER_LENGTH} characters`);
+  }
+  
+  // Check if the idType exists in our formats
+  const format = ID_FORMATS[idTypeValue];
+  if (!format) {
+    errors.push(`Unsupported ID type: ${idTypeValue}`);
+    return errors;
+  }
+  
+  if (!format.test(idNumber.trim())) {
+    errors.push(`Invalid ${idTypeValue} number format`);
+  }
+  
+  return errors;
 };
 
-const validateIdFileStructure = (idFile: FileReference): string[] => {
+const validateIdFile = (idTypeValue: string, idFile: FileReference): string[] => {
   const errors: string[] = [];
-
-  if (!idFile.url || !idFile.url.trim()) {
-    errors.push("ID file URL is required");
+  
+  if (!idFile?.url?.trim()) errors.push("ID file URL is required");
+  if (!idFile?.fileName?.trim()) errors.push("ID file name is required");
+  
+  if (idFile?.fileSize && idFile.fileSize > MAX_FILE_SIZE) {
+    errors.push(`ID file size cannot exceed ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
   }
-
-  if (!idFile.fileName || !idFile.fileName.trim()) {
-    errors.push("ID file name is required");
+  
+  const allowedTypes = ALLOWED_FILE_TYPES[idTypeValue];
+  if (idFile?.mimeType && allowedTypes && !allowedTypes.includes(idFile.mimeType)) {
+    errors.push(`Invalid file format for ${idTypeValue}. Allowed: ${allowedTypes.join(', ')}`);
   }
-
-  // File size validation (10MB limit)
-  const maxFileSize = 10 * 1024 * 1024; // 10MB in bytes
-  if (idFile.fileSize && idFile.fileSize > maxFileSize) {
-    errors.push("ID file size cannot exceed 10MB");
-  }
-
-  // MIME type validation
-  const allowedMimeTypes = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "application/pdf",
-    "image/tiff",
-  ];
-  if (idFile.mimeType && !allowedMimeTypes.includes(idFile.mimeType)) {
-    errors.push(
-      "Invalid file format. Only JPEG, PNG, WebP, PDF, and TIFF files are allowed"
-    );
-  }
-
+  
   return errors;
+};
+
+const validateIdDetails = (idDetails: Partial<IdDetails>): ValidationResult => {
+  const result: ValidationResult = {
+    hasIdDetails: !!idDetails,
+    isComplete: false,
+    missing: [],
+    errors: []
+  };
+  
+  if (!idDetails) {
+    result.missing = ['idType', 'idNumber', 'idFile'];
+    return result;
+  }
+  
+  // Check required fields
+  if (!idDetails.idType) result.missing.push('idType');
+  if (!idDetails.idNumber) result.missing.push('idNumber');
+  if (!idDetails.idFile) result.missing.push('idFile');
+  
+  // Validate enum - check if the value exists in the idType enum
+  if (idDetails.idType && !Object.values(idType).includes(idDetails.idType as idType)) {
+    result.errors.push('Invalid ID type');
+  }
+  
+  // Cross-validate type with number and file
+  if (idDetails.idType && idDetails.idNumber) {
+    result.errors.push(...validateIdNumber(idDetails.idType, idDetails.idNumber));
+  }
+  
+  if (idDetails.idType && idDetails.idFile) {
+    result.errors.push(...validateIdFile(idDetails.idType, idDetails.idFile));
+  }
+  
+  result.isComplete = result.missing.length === 0 && result.errors.length === 0;
+  return result;
+};
+
+// ===================================================================
+// AUDIT LOGGING
+// ===================================================================
+
+const logAuditEvent = async (
+  req: AuthenticatedRequest,
+  action: AuditLog['action'],
+  field?: keyof IdDetails,
+  oldValue?: any,
+  newValue?: any
+): Promise<void> => {
+  try {
+    const auditLog: AuditLog = {
+      userId: req.userId!,
+      action,
+      field,
+      oldValue: oldValue ? JSON.stringify(oldValue) : undefined,
+      newValue: newValue ? JSON.stringify(newValue) : undefined,
+      timestamp: new Date(),
+      ipAddress: req.ip || req.connection?.remoteAddress,
+      userAgent: req.get('User-Agent')
+    };
+    
+    // TODO: Save to audit log collection/service
+    console.log('ID Details Audit:', auditLog);
+    
+    // Example: await AuditLog.create(auditLog);
+  } catch (error) {
+    console.error('Failed to log audit event:', error);
+  }
 };
 
 // ===================================================================
@@ -175,306 +237,115 @@ const validateIdFileStructure = (idFile: FileReference): string[] => {
 // ===================================================================
 
 /**
- * Update complete ID details (type, number, and file)
+ * Update ID details (supports full or partial updates)
  * @route PUT /api/id-details
  */
 export const updateIdDetails = asyncHandler(
-  async (
-    req: Request<{}, IdDetailsResponse, UpdateIdDetailsRequestBody> &
-      AuthenticatedRequest,
-    res: Response<IdDetailsResponse>
-  ) => {
+  async (req: Request<{}, IdDetailsResponse, UpdateIdDetailsRequestBody> & AuthenticatedRequest, res: Response<IdDetailsResponse>) => {
     const userId = validateAuth(req, res);
     if (!userId) return;
 
-    const { idDetails } = req.body;
-
-    if (!idDetails) {
-      return res.status(400).json({
-        message: "ID details are required",
-        error: "Missing idDetails in request body",
+    const { idDetails: newIdDetails } = req.body;
+    if (!newIdDetails) {
+      return res.status(400).json({ 
+        message: "ID details are required", 
+        error: "Missing idDetails in request body" 
       });
     }
 
-    // Validate required fields
-    if (!idDetails.idType || !idDetails.idNumber || !idDetails.idFile) {
+    const [user, profile] = await findUserAndProfile(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const currentIdDetails = profile?.idDetails;
+    const mergedIdDetails = { ...currentIdDetails, ...newIdDetails };
+
+    // Validate the merged result
+    const validation = validateIdDetails(mergedIdDetails);
+    if (!validation.isComplete) {
       return res.status(400).json({
-        message: "ID type, ID number, and ID file are all required",
-        error: "Incomplete idDetails object",
+        message: "Validation failed",
+        error: [...validation.missing.map(m => `Missing: ${m}`), ...validation.errors].join(', '),
+        validation
       });
     }
 
-    // Validate ID type
-    if (!Object.values(idType).includes(idDetails.idType)) {
-      return res.status(400).json({
-        message: `Invalid ID type. Must be one of: ${Object.values(idType).join(
-          ", "
-        )}`,
-        error: "Invalid idType value",
-      });
-    }
-
-    // Validate ID number
-    if (!idDetails.idNumber.trim() || idDetails.idNumber.trim().length > 50) {
-      return res.status(400).json({
-        message: "ID number must be provided and cannot exceed 50 characters",
-        error: "Invalid idNumber",
-      });
-    }
-
-    // Validate ID file structure
-    const fileValidationErrors = validateIdFileStructure(idDetails.idFile);
-    if (fileValidationErrors.length > 0) {
-      return res.status(400).json({
-        message: "ID file validation failed",
-        error: fileValidationErrors.join(", "),
-      });
-    }
-
-    // Set upload timestamp if not provided
-    const idDetailsData: IdDetails = {
-      ...idDetails,
-      idNumber: idDetails.idNumber.trim(),
+    // Prepare final data
+    const finalIdDetails: IdDetails = {
+      idType: mergedIdDetails.idType!,
+      idNumber: mergedIdDetails.idNumber!.trim(),
       idFile: {
-        ...idDetails.idFile,
-        uploadedAt: idDetails.idFile.uploadedAt || new Date(),
-      },
+        ...mergedIdDetails.idFile!,
+        uploadedAt: mergedIdDetails.idFile!.uploadedAt || new Date()
+      }
     };
 
-    const [user, profile] = await Promise.all([
-      User.findById(userId).lean() as Promise<IUser | null>,
-      Profile.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            idDetails: idDetailsData,
-            lastModified: new Date(),
-          },
-        },
-        { new: true, runValidators: true, upsert: true, lean: true }
-      ),
-    ]);
-
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-        error: "User does not exist",
-      });
-    }
-
-    res
-      .status(200)
-      .json(
-        createSuccessResponse(
-          user,
-          profile,
-          "ID details updated successfully",
-          { idDetails: idDetailsData }
-        )
-      );
-  }
-);
-
-/**
- * Update only the ID type
- * @route PUT /api/id-details/type
- */
-export const updateIdType = asyncHandler(
-  async (
-    req: Request<{}, IdDetailsResponse, UpdateIdTypeRequestBody> &
-      AuthenticatedRequest,
-    res: Response<IdDetailsResponse>
-  ) => {
-    const userId = validateAuth(req, res);
-    if (!userId) return;
-
-    const { idType: newIdType } = req.body;
-
-    if (!newIdType || !Object.values(idType).includes(newIdType)) {
-      return res.status(400).json({
-        message: `Invalid ID type. Must be one of: ${Object.values(idType).join(
-          ", "
-        )}`,
-        error: "Invalid idType value",
-      });
-    }
-
-    const [user, profile] = await Promise.all([
-      User.findById(userId).lean() as Promise<IUser | null>,
-      Profile.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            "idDetails.idType": newIdType,
-            lastModified: new Date(),
-          },
-        },
-        { new: true, runValidators: true, lean: true }
-      ),
-    ]);
-
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-        error: "User does not exist",
-      });
-    }
-
-    if (!profile?.idDetails) {
-      return res.status(404).json({
-        message: "Profile not found or ID details not initialized",
-        error: "Please create complete ID details first",
-      });
-    }
-
-    res
-      .status(200)
-      .json(
-        createSuccessResponse(user, profile, "ID type updated successfully")
-      );
-  }
-);
-
-/**
- * Update only the ID number
- * @route PUT /api/id-details/number
- */
-export const updateIdNumber = asyncHandler(
-  async (
-    req: Request<{}, IdDetailsResponse, UpdateIdNumberRequestBody> &
-      AuthenticatedRequest,
-    res: Response<IdDetailsResponse>
-  ) => {
-    const userId = validateAuth(req, res);
-    if (!userId) return;
-
-    const { idNumber } = req.body;
-
-    if (!idNumber || !idNumber.trim()) {
-      return res.status(400).json({
-        message: "ID number is required and cannot be empty",
-        error: "Missing or empty idNumber",
-      });
-    }
-
-    if (idNumber.trim().length > 50) {
-      return res.status(400).json({
-        message: "ID number cannot exceed 50 characters",
-        error: "idNumber too long",
-      });
-    }
-
-    const [user, profile] = await Promise.all([
-      User.findById(userId).lean() as Promise<IUser | null>,
-      Profile.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            "idDetails.idNumber": idNumber.trim(),
-            lastModified: new Date(),
-          },
-        },
-        { new: true, runValidators: true, lean: true }
-      ),
-    ]);
-
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-        error: "User does not exist",
-      });
-    }
-
-    if (!profile?.idDetails) {
-      return res.status(404).json({
-        message: "Profile not found or ID details not initialized",
-        error: "Please create complete ID details first",
-      });
-    }
-
-    res
-      .status(200)
-      .json(
-        createSuccessResponse(user, profile, "ID number updated successfully")
-      );
-  }
-);
-
-/**
- * Update only the ID file
- * @route PUT /api/id-details/file
- */
-export const updateIdFile = asyncHandler(
-  async (
-    req: Request<{}, IdDetailsResponse, UpdateIdFileRequestBody> &
-      AuthenticatedRequest,
-    res: Response<IdDetailsResponse>
-  ) => {
-    const userId = validateAuth(req, res);
-    if (!userId) return;
-
-    const { idFile } = req.body;
-
-    if (!idFile) {
-      return res.status(400).json({
-        message: "ID file data is required",
-        error: "Missing idFile in request body",
-      });
-    }
-
-    // Validate ID file structure
-    const fileValidationErrors = validateIdFileStructure(idFile);
-    if (fileValidationErrors.length > 0) {
-      return res.status(400).json({
-        message: "ID file validation failed",
-        error: fileValidationErrors.join(", "),
-      });
-    }
-
-    // Set upload timestamp if not provided
-    const idFileData: FileReference = {
-      ...idFile,
-      uploadedAt: idFile.uploadedAt || new Date(),
-    };
-
-    const [user, profile] = await Promise.all([
-      User.findById(userId).lean() as Promise<IUser | null>,
-      Profile.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            "idDetails.idFile": idFileData,
-            lastModified: new Date(),
-          },
-        },
-        { new: true, runValidators: true, lean: true }
-      ),
-    ]);
-
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-        error: "User does not exist",
-      });
-    }
-
-    if (!profile?.idDetails) {
-      return res.status(404).json({
-        message: "Profile not found or ID details not initialized",
-        error: "Please create complete ID details first",
-      });
-    }
-
-    res.status(200).json(
-      createSuccessResponse(user, profile, "ID file updated successfully", {
-        idFile: idFileData,
-      })
+    // Update profile
+    const updatedProfile = await Profile.findOneAndUpdate(
+      { userId },
+      { $set: { idDetails: finalIdDetails, lastModified: new Date() } },
+      { new: true, runValidators: true, upsert: true, lean: true }
     );
+
+    // Log audit event
+    await logAuditEvent(req, currentIdDetails ? 'UPDATE' : 'CREATE', undefined, currentIdDetails, finalIdDetails);
+
+    res.status(200).json(createResponse(user, updatedProfile, "ID details updated successfully", { idDetails: finalIdDetails }));
   }
 );
 
 /**
- * Get current ID details
+ * Update specific ID field
+ * @route PUT /api/id-details/:field
+ */
+export const updateIdField = asyncHandler(
+  async (req: Request<{ field: keyof IdDetails }, IdDetailsResponse, { value: any }> & AuthenticatedRequest, res: Response<IdDetailsResponse>) => {
+    const userId = validateAuth(req, res);
+    if (!userId) return;
+
+    const { field } = req.params;
+    const { value } = req.body;
+    
+    const allowedFields: (keyof IdDetails)[] = ['idType', 'idNumber', 'idFile'];
+    if (!allowedFields.includes(field)) {
+      return res.status(400).json({
+        message: `Invalid field. Allowed fields: ${allowedFields.join(', ')}`
+      });
+    }
+
+    const [user, profile] = await findUserAndProfile(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!profile?.idDetails) {
+      return res.status(404).json({ message: "Please create complete ID details first" });
+    }
+
+    const oldValue = profile.idDetails[field];
+    const updatedIdDetails = { ...profile.idDetails, [field]: value };
+
+    // Validate the updated details
+    const validation = validateIdDetails(updatedIdDetails);
+    if (!validation.isComplete) {
+      return res.status(400).json({
+        message: "Validation failed",
+        error: validation.errors.join(', ')
+      });
+    }
+
+    // Update profile
+    const result = await Profile.findOneAndUpdate(
+      { userId },
+      { $set: { [`idDetails.${field}`]: value, lastModified: new Date() } },
+      { new: true, runValidators: true, lean: true }
+    );
+
+    // Log audit event
+    await logAuditEvent(req, 'UPDATE', field, oldValue, value);
+
+    res.status(200).json(createResponse(user, result, `ID ${field} updated successfully`));
+  }
+);
+
+/**
+ * Get ID details
  * @route GET /api/id-details
  */
 export const getIdDetails = asyncHandler(
@@ -482,35 +353,28 @@ export const getIdDetails = asyncHandler(
     const userId = validateAuth(req, res);
     if (!userId) return;
 
-    const profile = (await Profile.findOne({
-      userId,
-    }).lean()) as IUserProfile | null;
+    const profile = await Profile.findOne({ userId }).lean() as IUserProfile | null;
+    
+    // Log audit event
+    await logAuditEvent(req, 'VIEW');
 
-    if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found",
-        hasIdDetails: false,
-        error: "Profile does not exist",
-      });
-    }
-
-    if (!profile.idDetails) {
+    if (!profile?.idDetails) {
       return res.status(200).json({
         message: "No ID details found",
-        hasIdDetails: false,
+        hasIdDetails: false
       });
     }
 
     res.status(200).json({
       message: "ID details retrieved successfully",
       idDetails: profile.idDetails,
-      hasIdDetails: true,
+      hasIdDetails: true
     });
   }
 );
 
 /**
- * Remove ID details (soft removal by setting to undefined)
+ * Remove ID details
  * @route DELETE /api/id-details
  */
 export const removeIdDetails = asyncHandler(
@@ -518,101 +382,40 @@ export const removeIdDetails = asyncHandler(
     const userId = validateAuth(req, res);
     if (!userId) return;
 
-    const [user, profile] = await Promise.all([
-      User.findById(userId).lean() as Promise<IUser | null>,
-      Profile.findOneAndUpdate(
-        { userId },
-        {
-          $unset: { idDetails: 1 },
-          $set: { lastModified: new Date() },
-        },
-        { new: true, lean: true }
-      ),
-    ]);
+    const [user, profile] = await findUserAndProfile(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found",
-        error: "User does not exist",
-      });
-    }
+    const oldIdDetails = profile?.idDetails;
 
-    if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found",
-        error: "Profile does not exist",
-      });
-    }
+    const updatedProfile = await Profile.findOneAndUpdate(
+      { userId },
+      { $unset: { idDetails: 1 }, $set: { lastModified: new Date() } },
+      { new: true, lean: true }
+    );
 
-    res
-      .status(200)
-      .json(
-        createSuccessResponse(user, profile, "ID details removed successfully")
-      );
+    // Log audit event
+    await logAuditEvent(req, 'DELETE', undefined, oldIdDetails, null);
+
+    res.status(200).json(createResponse(user, updatedProfile, "ID details removed successfully"));
   }
 );
 
 /**
- * Validate ID details completeness and correctness
+ * Validate ID details
  * @route GET /api/id-details/validate
  */
-export const validateIdDetails = asyncHandler(
+export const validateIdDetailsEndpoint = asyncHandler(
   async (req: AuthenticatedRequest, res: Response<IdDetailsResponse>) => {
     const userId = validateAuth(req, res);
     if (!userId) return;
 
-    const profile = (await Profile.findOne({
-      userId,
-    }).lean()) as IUserProfile | null;
-
-    if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found",
-        error: "Profile does not exist",
-      });
-    }
-
-    const validation: ValidationResult = {
-      hasIdDetails: !!profile.idDetails,
-      isComplete: false,
-      missing: [],
-      errors: [],
-    };
-
-    if (!profile.idDetails) {
-      validation.missing = ["idType", "idNumber", "idFile"];
-    } else {
-      const { idType, idNumber, idFile } = profile.idDetails;
-
-      // Check for missing fields
-      if (!idType) validation.missing.push("idType");
-      if (!idNumber) validation.missing.push("idNumber");
-      if (!idFile) {
-        validation.missing.push("idFile");
-      } else {
-        // Validate file structure
-        const fileErrors = validateIdFileStructure(idFile);
-        validation.errors.push(...fileErrors);
-      }
-
-      // Validate ID type enum
-      if (idType && !Object.values(idType).includes(idType)) {
-        validation.errors.push("Invalid ID type");
-      }
-
-      // Validate ID number
-      if (idNumber && (!idNumber.trim() || idNumber.trim().length > 50)) {
-        validation.errors.push("Invalid ID number format or length");
-      }
-
-      validation.isComplete =
-        validation.missing.length === 0 && validation.errors.length === 0;
-    }
+    const profile = await Profile.findOne({ userId }).lean() as IUserProfile | null;
+    const validation = validateIdDetails(profile?.idDetails ?? {});
 
     res.status(200).json({
       message: "ID details validation completed",
       validation,
-      hasIdDetails: validation.hasIdDetails,
+      hasIdDetails: validation.hasIdDetails
     });
   }
 );
@@ -626,26 +429,15 @@ export const getIdDetailsSummary = asyncHandler(
     const userId = validateAuth(req, res);
     if (!userId) return;
 
-    const profile = (await Profile.findOne({
-      userId,
-    }).lean()) as IUserProfile | null;
+    const profile = await Profile.findOne({ userId }).lean() as IUserProfile | null;
 
-    if (!profile) {
-      return res.status(404).json({
-        message: "Profile not found",
-        hasIdDetails: false,
-        error: "Profile does not exist",
-      });
-    }
-
-    if (!profile.idDetails) {
+    if (!profile?.idDetails) {
       return res.status(200).json({
         message: "No ID details found",
-        hasIdDetails: false,
+        hasIdDetails: false
       });
     }
 
-    // Return summary without sensitive information
     const summary = {
       idType: profile.idDetails.idType,
       hasIdNumber: !!profile.idDetails.idNumber,
@@ -656,8 +448,8 @@ export const getIdDetailsSummary = asyncHandler(
 
     res.status(200).json({
       message: "ID details summary retrieved successfully",
-      idDetails: summary as any, // Type assertion for response compatibility
-      hasIdDetails: true,
+      idDetails: summary as any,
+      hasIdDetails: true
     });
   }
 );

@@ -1,7 +1,7 @@
 // models/profile.model.ts
 import mongoose, { Schema, Document } from "mongoose";
-import {
-  IUserProfile,
+
+import { VerificationStatus,  IUserProfile,
   ModerationStatus,
   IUserPreferences,
   FileReference,
@@ -11,9 +11,7 @@ import {
   ContactDetails,
   IdDetails,
   idType,
-  UserRole,
-  VerificationStatus,
-} from "../types";
+  UserRole, } from "../types";
 
 // Extend the IUserProfile interface for mongoose methods
 interface IUserProfileDocument extends Omit<IUserProfile, "_id">, Document {
