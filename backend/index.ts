@@ -13,6 +13,7 @@ import { connectDB } from "./database/connectDB";
 import authRoutes from "./routes/auth.routes.js";
 import warningRoutes from "./routes/warning.routes.js";
 import reviewRoutes from "./routes/reviews.routes.js";
+import idDetailsRoutes from "./routes/idDetails.routes.js";
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/profile/client-profiles", clientProfileRoutes);
 app.use("/api/profile/provider-profiles", providerProfileRoutes);
+app.use("/api/id-details", idDetailsRoutes); // Add this line
 app.use("/api/categories", categoryRoutes);
 app.use("/api/services", serviceRoutes);
 app.use("/api/warnings", warningRoutes);

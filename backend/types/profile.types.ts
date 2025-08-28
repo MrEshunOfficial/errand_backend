@@ -18,7 +18,7 @@ import {
 export interface ProfileWarning {
   _id?: Types.ObjectId;
   reason: string;
-  severity: 'low' | 'medium' | 'high';
+  severity: "low" | "medium" | "high";
   issuedAt: Date;
   issuedBy?: Types.ObjectId;
 }
@@ -43,7 +43,7 @@ export interface IUserProfile extends BaseEntity, SoftDeletable {
   lastModeratedAt?: Date;
   moderationNotes?: string;
   warningsCount: number;
-  
+
   // Add the missing warnings field
   warnings?: ProfileWarning[];
   verificationReason?: string;
@@ -71,7 +71,7 @@ export interface ProfileResponse {
 // Additional types for warning management
 export interface AddWarningRequestBody {
   reason: string;
-  severity: 'low' | 'medium' | 'high';
+  severity: "low" | "medium" | "high";
   issuedBy?: string;
 }
 
