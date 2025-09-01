@@ -1,9 +1,10 @@
 // routes/service.routes.ts
-import express from "express";
+import express, { RequestHandler } from "express";
 import { authenticateToken, requireAdmin } from "../middleware/auth.middleware";
 import { ServiceController } from "../controllers/service.controller";
 
 const router = express.Router();
+const serviceController = new ServiceController();
 
 // ===================================================================
 // AUTHENTICATED SERVICE ROUTES - Authentication required
@@ -13,20 +14,28 @@ const router = express.Router();
 router.get(
   "/my-services",
   authenticateToken,
-  ServiceController.getUserServices
+  serviceController.getUserServices.bind(serviceController) as RequestHandler
 );
 
 // Create new service (authenticated users can create services)
-router.post("/", authenticateToken, ServiceController.createService as any);
+router.post(
+  "/",
+  authenticateToken,
+  serviceController.createService.bind(serviceController) as RequestHandler
+);
 
 // Update service (users can update their own services)
-router.put("/:id", authenticateToken, ServiceController.updateService as any);
+router.put(
+  "/:id",
+  authenticateToken,
+  serviceController.updateService.bind(serviceController) as RequestHandler
+);
 
 // Soft delete service (users can delete their own services)
 router.delete(
   "/:id",
   authenticateToken,
-  ServiceController.deleteService as any
+  serviceController.deleteService.bind(serviceController) as RequestHandler
 );
 
 // ===================================================================
@@ -38,15 +47,15 @@ router.patch(
   "/:id/restore",
   authenticateToken,
   requireAdmin,
-  ServiceController.restoreService as any
+  serviceController.restoreService.bind(serviceController) as RequestHandler
 );
 
 // Toggle popular status (admin only)
 router.patch(
-  ":id/toggle-popular",
+  "/:id/toggle-popular",
   authenticateToken,
   requireAdmin,
-  ServiceController.togglePopular as any
+  serviceController.togglePopular.bind(serviceController) as RequestHandler
 );
 
 // Approve service (admin only)
@@ -54,7 +63,7 @@ router.patch(
   "/:id/approve",
   authenticateToken,
   requireAdmin,
-  ServiceController.approveService as any
+  serviceController.approveService.bind(serviceController) as RequestHandler
 );
 
 // Reject service (admin only)
@@ -62,7 +71,7 @@ router.patch(
   "/:id/reject",
   authenticateToken,
   requireAdmin,
-  ServiceController.rejectService as any
+  serviceController.rejectService.bind(serviceController) as RequestHandler
 );
 
 // ===================================================================
@@ -70,30 +79,32 @@ router.patch(
 // ===================================================================
 
 // Get all services with filtering and pagination
-router.get("/", ServiceController.getAllServices);
+router.get("/", serviceController.getAllServices.bind(serviceController) as RequestHandler);
 
-// IMPORTANT: Specific routes MUST come before parameterized routes
 // Get popular services
-router.get("/popular", ServiceController.getPopularServices);
+router.get("/popular", serviceController.getPopularServices.bind(serviceController) as RequestHandler);
 
 // Get services with explicit pricing only (priceBasedOnServiceType: false)
-router.get("/with-pricing", ServiceController.getServicesWithPricing);
+router.get("/with-pricing", serviceController.getServicesWithPricing.bind(serviceController) as RequestHandler);
 
 // Get pending services (admin only - for moderation)
 router.get(
   "/pending",
   authenticateToken,
   requireAdmin,
-  ServiceController.getPendingServices
+  serviceController.getPendingServices.bind(serviceController) as RequestHandler
 );
 
 // Get services by category (parameterized route)
-router.get("/category/:categoryId", ServiceController.getServicesByCategory);
+router.get(
+  "/category/:categoryId",
+  serviceController.getServicesByCategory.bind(serviceController) as RequestHandler
+);
 
-// Get service by slug (for SEO-friendly URLs) - should come before /:id
-router.get("/slug/:slug", ServiceController.getServiceBySlug);
+// Get service by slug (for SEO-friendly URLs)
+router.get("/slug/:slug", serviceController.getServiceBySlug.bind(serviceController) as RequestHandler);
 
-// Get service by ID - THIS MUST BE LAST among GET routes to avoid conflicts
-router.get("/:id", ServiceController.getServiceById);
+// Get service by ID
+router.get("/:id", serviceController.getServiceById.bind(serviceController) as RequestHandler);
 
 export default router;

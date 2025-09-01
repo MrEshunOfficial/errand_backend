@@ -10,24 +10,34 @@ const router = express.Router();
 // ===================================================================
 
 // Get all active categories with filtering and pagination
+// Supports: includeServices, includeSubcategories, includeUserData, includeInactive, servicesLimit
 router.get("/", CategoryController.getCategories);
 
+// Get categories with services (enhanced endpoint)
+// Supports: servicesLimit, popularOnly, includeSubcategories, includeUserData, includeInactive
+router.get("/with-services", CategoryController.getCategoriesWithServices);
+
 // Get parent categories only
+// Supports: includeSubcategories, includeServicesCount, includeUserData, includeInactive, includeServices, servicesLimit, popularOnly
 router.get("/parents", CategoryController.getParentCategories);
 
 // Search categories
+// Supports: q (query), limit, includeInactive, parentId, includeUserData
 router.get("/search", CategoryController.searchCategories);
 
 // Get subcategories of a parent category
+// Supports: includeUserData
 router.get(
   "/parents/:parentId/subcategories",
   CategoryController.getSubcategories
 );
 
 // Get category by slug (for SEO-friendly URLs)
+// Supports: includeSubcategories, includeUserData, includeServices, servicesLimit, popularOnly
 router.get("/slug/:slug", CategoryController.getCategoryBySlug);
 
 // Get category by ID
+// Supports: includeSubcategories, includeUserData, includeServices, servicesLimit, popularOnly
 router.get("/:id", CategoryController.getCategoryById);
 
 // ===================================================================

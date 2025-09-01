@@ -6,10 +6,11 @@ import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils
 import { ServiceStatus } from "../types";
 
 export class ServiceController {
-  // Helper methods
-  private static handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
+  private handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
     console.error(`${message}:`, error);
-    
+    if (error instanceof Error) {
+      console.error("Stack trace:", error.stack);
+    }
     if (error instanceof Error && error.name === "ValidationError") {
       res.status(400).json({
         success: false,
@@ -18,7 +19,6 @@ export class ServiceController {
       });
       return;
     }
-
     res.status(statusCode).json({
       success: false,
       message,
@@ -26,30 +26,29 @@ export class ServiceController {
     });
   }
 
-  private static validateObjectId(id: string): boolean {
+  private validateObjectId(id: string): boolean {
     return Types.ObjectId.isValid(id);
   }
 
-  private static getPaginationParams(query: any) {
+  private getPaginationParams(query: any) {
     const page = parseInt(query.page as string) || 1;
     const limit = parseInt(query.limit as string) || 10;
     const skip = (page - 1) * limit;
     return { page, limit, skip };
   }
 
-  private static buildPaginationResponse(page: number, limit: number, total: number) {
+  private buildPaginationResponse(page: number, limit: number, total: number) {
     const totalPages = Math.ceil(total / limit);
     return {
       currentPage: page,
       totalPages,
       totalItems: total,
-      itemsPerPage: limit,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
     };
   }
 
-  private static buildPriceFilter(minPrice?: string, maxPrice?: string) {
+  private buildPriceFilter(minPrice?: string, maxPrice?: string) {
     if (!minPrice && !maxPrice) return null;
 
     const priceConditions: any[] = [];
@@ -76,7 +75,7 @@ export class ServiceController {
     return priceConditions.length > 0 ? { $or: priceConditions } : null;
   }
 
-  private static validatePricingData(serviceData: any): string | null {
+  private validatePricingData(serviceData: any): string | null {
     if (serviceData.priceBasedOnServiceType === false) {
       if (!serviceData.basePrice && !serviceData.priceRange) {
         return "When pricing is not based on service, either the base price or price range must be provided";
@@ -94,7 +93,7 @@ export class ServiceController {
     return null;
   }
 
-  private static buildServiceFilter(query: any, baseFilter: any = {}) {
+  private buildServiceFilter(query: any, baseFilter: any = {}) {
     const filter = { ...baseFilter, isDeleted: false };
     const {
       category, status, isPopular, tags, minPrice, maxPrice, search,
@@ -115,7 +114,6 @@ export class ServiceController {
       filter.$text = { $search: search as string };
     }
 
-    // Price filtering
     if (minPrice || maxPrice) {
       filter.priceBasedOnServiceType = false;
       const priceFilter = this.buildPriceFilter(minPrice, maxPrice);
@@ -125,7 +123,7 @@ export class ServiceController {
     return filter;
   }
 
-  private static async paginatedQuery(
+  private async paginatedQuery(
     query: any,
     filter: any,
     populate: string[] = ["category", "submittedBy"],
@@ -158,12 +156,10 @@ export class ServiceController {
     };
   }
 
-  // Main controller methods
-  static async getAllServices(req: Request, res: Response): Promise<void> {
+  async getAllServices(req: Request, res: Response): Promise<void> {
     try {
       const filter = this.buildServiceFilter(req.query);
       const result = await this.paginatedQuery(req.query, filter);
-
       res.status(200).json({
         success: true,
         ...result
@@ -173,7 +169,7 @@ export class ServiceController {
     }
   }
 
-  static async getUserServices(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async getUserServices(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       if (!req.user?.id) {
         res.status(401).json({ success: false, message: "Authentication required" });
@@ -183,19 +179,12 @@ export class ServiceController {
       const { includeDeleted = "false" } = req.query;
       const baseFilter = {
         submittedBy: new Types.ObjectId(req.user.id),
-        ...(includeDeleted !== "true" ? { isDeleted: false } : {}),
+        isDeleted: includeDeleted === "true" ? undefined : false,
       };
-
-      if (includeDeleted !== "true") {
-        baseFilter.isDeleted = false;
-      } else {
-        delete baseFilter.isDeleted; // Allow deleted services
-      }
 
       const filter = this.buildServiceFilter(req.query, baseFilter);
       const result = await this.paginatedQuery(req.query, filter, [], ["approvedBy", "rejectedBy"]);
 
-      // Get status counts
       const statusCounts = await ServiceModel.aggregate([
         { $match: { submittedBy: new Types.ObjectId(req.user.id), ...(includeDeleted !== "true" && { isDeleted: false }) } },
         { $group: { _id: "$status", count: { $sum: 1 } } },
@@ -218,9 +207,8 @@ export class ServiceController {
       this.handleError(res, error, "Error fetching user services");
     }
   }
-  
 
-  static async getServiceById(req: Request, res: Response): Promise<void> {
+  async getServiceById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -246,7 +234,7 @@ export class ServiceController {
     }
   }
 
-  static async getServiceBySlug(req: Request, res: Response): Promise<void> {
+  async getServiceBySlug(req: Request, res: Response): Promise<void> {
     try {
       const { slug } = req.params;
       const service = await ServiceModel.findBySlug(slug);
@@ -262,13 +250,12 @@ export class ServiceController {
     }
   }
 
-  static async createService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async createService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const serviceData = req.body;
 
       if (req.user) serviceData.submittedBy = req.user.id;
 
-      // Validate required fields
       if (!serviceData.title || !serviceData.description || !serviceData.categoryId) {
         res.status(400).json({
           success: false,
@@ -277,14 +264,12 @@ export class ServiceController {
         return;
       }
 
-      // Validate pricing logic
       const pricingError = this.validatePricingData(serviceData);
       if (pricingError) {
         res.status(400).json({ success: false, message: pricingError });
         return;
       }
 
-      // Clear pricing fields if priceBasedOnServiceType is true
       if (serviceData.priceBasedOnServiceType === true) {
         serviceData.basePrice = undefined;
         serviceData.priceRange = undefined;
@@ -305,7 +290,7 @@ export class ServiceController {
     }
   }
 
-  static async updateService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async updateService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -315,11 +300,9 @@ export class ServiceController {
         return;
       }
 
-      // Remove protected fields
       ["submittedBy", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt"]
         .forEach(field => delete updates[field]);
 
-      // Validate pricing logic for updates
       if (updates.hasOwnProperty('priceBasedOnServiceType') && updates.priceBasedOnServiceType === false) {
         if (!updates.basePrice && !updates.priceRange) {
           const existingService = await ServiceModel.findOne({ _id: id, isDeleted: false });
@@ -360,7 +343,7 @@ export class ServiceController {
     }
   }
 
-  static async deleteService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async deleteService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -382,7 +365,7 @@ export class ServiceController {
     }
   }
 
-  static async restoreService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async restoreService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -404,7 +387,7 @@ export class ServiceController {
     }
   }
 
-  private static async performServiceAction(
+  private async performServiceAction(
     req: AuthenticatedRequest,
     res: Response,
     action: 'approve' | 'reject',
@@ -440,15 +423,15 @@ export class ServiceController {
     }
   }
 
-  static async approveService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async approveService(req: AuthenticatedRequest, res: Response): Promise<void> {
     return this.performServiceAction(req, res, 'approve', 'Service approved successfully');
   }
 
-  static async rejectService(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async rejectService(req: AuthenticatedRequest, res: Response): Promise<void> {
     return this.performServiceAction(req, res, 'reject', 'Service rejected successfully');
   }
 
-  static async getPopularServices(req: Request, res: Response): Promise<void> {
+  async getPopularServices(req: Request, res: Response): Promise<void> {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const services = await ServiceModel.findPopular().limit(limit);
@@ -458,7 +441,7 @@ export class ServiceController {
     }
   }
 
-  static async togglePopular(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async togglePopular(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -486,7 +469,7 @@ export class ServiceController {
     }
   }
 
-  static async getServicesByCategory(req: Request, res: Response): Promise<void> {
+  async getServicesByCategory(req: Request, res: Response): Promise<void> {
     try {
       const { categoryId } = req.params;
       const { page, limit, skip } = this.getPaginationParams(req.query);
@@ -516,7 +499,7 @@ export class ServiceController {
     }
   }
 
-  static async getPendingServices(req: Request, res: Response): Promise<void> {
+  async getPendingServices(req: Request, res: Response): Promise<void> {
     try {
       const { page, limit, skip } = this.getPaginationParams(req.query);
       
@@ -538,7 +521,7 @@ export class ServiceController {
     }
   }
 
-  static async getServicesWithPricing(req: Request, res: Response): Promise<void> {
+  async getServicesWithPricing(req: Request, res: Response): Promise<void> {
     try {
       const baseFilter = {
         priceBasedOnServiceType: false,

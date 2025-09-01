@@ -1,7 +1,10 @@
-// models/Category.ts - Fixed version
+// models/category.model.ts - Fixed version with proper service population
 import { Schema, model, Model, Document, Types } from "mongoose";
 import { ModerationStatus } from "../types/base.types";
-import { Category } from "../types/express";
+import { Category } from "../types";
+
+// Import ServiceStatus - make sure this path is correct
+import { ServiceStatus } from "../types/base.types";
 
 const fileReferenceSchema = new Schema(
   {
@@ -19,6 +22,7 @@ export interface ICategoryModel extends Model<Category> {
   findBySlug(slug: string): any;
   findParentCategories(): any;
   findSubcategories(parentId: Types.ObjectId): any;
+  findWithServices(limit?: number): any;
 }
 
 const categorySchema = new Schema<Category>(
@@ -161,6 +165,7 @@ categorySchema.virtual("subcategories", {
   ref: "Category",
   localField: "_id",
   foreignField: "parentCategoryId",
+  match: { isActive: true, isDeleted: false }
 });
 
 // Virtual for services count
@@ -169,6 +174,35 @@ categorySchema.virtual("servicesCount", {
   localField: "_id",
   foreignField: "categoryId",
   count: true,
+  match: { 
+    status: ServiceStatus.APPROVED, 
+    isDeleted: false  // Changed from { $ne: true } to false
+  }
+});
+
+// FIXED: Virtual for actual services (without hardcoded limit)
+categorySchema.virtual("services", {
+  ref: "Service",
+  localField: "_id",
+  foreignField: "categoryId",
+  match: { 
+    status: ServiceStatus.APPROVED, 
+    isDeleted: false  // Changed from { $ne: true } to false
+  }
+  // Remove the hardcoded options - let controller handle limits
+});
+
+// FIXED: Virtual for popular services only (without hardcoded limit)
+categorySchema.virtual("popularServices", {
+  ref: "Service",
+  localField: "_id",
+  foreignField: "categoryId",
+  match: { 
+    status: ServiceStatus.APPROVED, 
+    isDeleted: false,  // Changed from { $ne: true } to false
+    isPopular: true
+  }
+  // Remove the hardcoded options - let controller handle limits
 });
 
 // Static methods
@@ -194,6 +228,17 @@ categorySchema.statics.findSubcategories = function (parentId: Types.ObjectId) {
     isActive: true,
     isDeleted: false,
   }).sort({ displayOrder: 1 });
+};
+
+// FIXED: Method to find categories with their services
+categorySchema.statics.findWithServices = function (limit: number = 10) {
+  return this.find({ isActive: true, isDeleted: false })
+    .populate({
+      path: 'services',
+      options: { limit, sort: { createdAt: -1 } }
+    })
+    .populate('servicesCount')
+    .sort({ displayOrder: 1 });
 };
 
 // Instance methods
