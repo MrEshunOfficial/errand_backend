@@ -240,3 +240,4 @@ export interface ServiceUser extends BaseEntity, SoftDeletable {
   moderationNotes?: string;
   warningsCount: number;
 }
+

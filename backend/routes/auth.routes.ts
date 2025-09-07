@@ -84,7 +84,6 @@ router.get("/status", authenticateToken, (req, res) => {
           isSuperAdmin: req.user.isSuperAdmin,
           systemRole: req.user.systemRole,
           provider: req.user.provider,
-          avatar: req.user.avatar,
           lastLogin: req.user.lastLogin,
           status: req.user.status,
         }

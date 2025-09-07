@@ -106,3 +106,58 @@ export const requireSuperAdmin = (
   }
   next();
 };
+
+/**
+ * Optional authentication middleware
+ * Attaches user to request if valid token exists, but doesn't fail if no token
+ */
+export const optionalAuth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    // Get token from cookies or Authorization header
+    let token: string | undefined;
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    } else if (req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith("Bearer ")) {
+        token = authHeader.split(" ")[1];
+      }
+    }
+
+    // If no token, continue without authentication
+    if (!token) {
+      next();
+      return;
+    }
+
+    // Verify JWT secret exists
+    if (!process.env.JWT_SECRET) {
+      next(); // Continue without auth rather than failing
+      return;
+    }
+
+    // Try to verify token
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET) as { userId: string };
+      
+      // Find user
+      const user = await User.findById(decoded.userId);
+      if (user) {
+        req.userId = decoded.userId;
+        req.user = user;
+      }
+    } catch (jwtError) {
+      // Invalid token - continue as unauthenticated rather than failing
+      console.log("Invalid token, continuing as unauthenticated");
+    }
+
+    next();
+  } catch (error) {
+    // Any error - continue without auth rather than failing
+    next();
+  }
+};
