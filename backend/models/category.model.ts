@@ -20,11 +20,15 @@ export interface ICategoryModel extends Model<Category> {
   findBySlug(slug: string): any;
   findParentCategories(): any;
   findSubcategories(parentId: Types.ObjectId): any;
-  findWithServices(options?: { limit?: number; popularOnly?: boolean; isAdmin?: boolean }): Promise<any[]>;
-  findWithServicesAggregation(options?: { 
-    limit?: number; 
-    skip?: number; 
-    servicesLimit?: number; 
+  findWithServices(options?: {
+    limit?: number;
+    popularOnly?: boolean;
+    isAdmin?: boolean;
+  }): Promise<any[]>;
+  findWithServicesAggregation(options?: {
+    limit?: number;
+    skip?: number;
+    servicesLimit?: number;
     popularOnly?: boolean;
     includeSubcategories?: boolean;
     isAdmin?: boolean;
@@ -180,7 +184,7 @@ categorySchema.virtual("subcategories", {
   ref: "Category",
   localField: "_id",
   foreignField: "parentCategoryId",
-  match: { isActive: true, isDeleted: false }
+  match: { isActive: true, isDeleted: false },
 });
 
 // UPDATED: Virtual for services count with admin support
@@ -189,7 +193,7 @@ categorySchema.virtual("servicesCount", {
   localField: "_id",
   foreignField: "categoryId",
   count: true,
-  match: { isDeleted: { $ne: true } }
+  match: { isDeleted: { $ne: true } },
   // Note: can't dynamically filter by status in virtuals based on user role
   // this will be handled in the controller methods instead
 });
@@ -199,14 +203,14 @@ categorySchema.virtual("services", {
   ref: "Service",
   localField: "_id",
   foreignField: "categoryId",
-  match: { 
-    status: ServiceStatus.APPROVED, 
-    isDeleted: { $ne: true } 
+  match: {
+    status: ServiceStatus.APPROVED,
+    isDeleted: { $ne: true },
   },
-  options: { 
+  options: {
     sort: { createdAt: -1 },
-    limit: 10 
-  }
+    limit: 10,
+  },
 });
 
 // UPDATED: Virtual for all services (for admin users)
@@ -215,10 +219,10 @@ categorySchema.virtual("allServices", {
   localField: "_id",
   foreignField: "categoryId",
   match: { isDeleted: { $ne: true } },
-  options: { 
+  options: {
     sort: { createdAt: -1 },
-    limit: 10 
-  }
+    limit: 10,
+  },
 });
 
 // Virtual for popular services
@@ -226,15 +230,15 @@ categorySchema.virtual("popularServices", {
   ref: "Service",
   localField: "_id",
   foreignField: "categoryId",
-  match: { 
+  match: {
     status: ServiceStatus.APPROVED,
     isPopular: true,
-    isDeleted: { $ne: true } 
+    isDeleted: { $ne: true },
   },
-  options: { 
+  options: {
     sort: { createdAt: -1 },
-    limit: 5 
-  }
+    limit: 5,
+  },
 });
 
 // Static methods
@@ -263,14 +267,16 @@ categorySchema.statics.findSubcategories = function (parentId: Types.ObjectId) {
 };
 
 // UPDATED: Aggregation method with admin support
-categorySchema.statics.findWithServicesAggregation = async function (options = {}) {
-  const { 
-    limit = 20, 
-    skip = 0, 
-    servicesLimit = 10, 
+categorySchema.statics.findWithServicesAggregation = async function (
+  options = {}
+) {
+  const {
+    limit = 20,
+    skip = 0,
+    servicesLimit = 10,
     popularOnly = false,
     includeSubcategories = false,
-    isAdmin = false
+    isAdmin = false,
   } = options;
 
   const pipeline: any[] = [
@@ -278,8 +284,8 @@ categorySchema.statics.findWithServicesAggregation = async function (options = {
     {
       $match: {
         isActive: true,
-        isDeleted: false
-      }
+        isDeleted: false,
+      },
     },
     // Lookup services with role-based filtering
     {
@@ -293,18 +299,20 @@ categorySchema.statics.findWithServicesAggregation = async function (options = {
                 $and: [
                   { $eq: ["$categoryId", "$categoryId"] },
                   // Admin sees all services, users see only approved
-                  ...(isAdmin ? [] : [{ $eq: ["$status", ServiceStatus.APPROVED] }]),
+                  ...(isAdmin
+                    ? []
+                    : [{ $eq: ["$status", ServiceStatus.APPROVED] }]),
                   { $ne: ["$isDeleted", true] },
-                  ...(popularOnly ? [{ $eq: ["$isPopular", true] }] : [])
-                ]
-              }
-            }
+                  ...(popularOnly ? [{ $eq: ["$isPopular", true] }] : []),
+                ],
+              },
+            },
           },
           { $sort: { createdAt: -1 } },
-          { $limit: servicesLimit }
+          { $limit: servicesLimit },
         ],
-        as: "services"
-      }
+        as: "services",
+      },
     },
     // Add services count with role-based filtering
     {
@@ -318,31 +326,33 @@ categorySchema.statics.findWithServicesAggregation = async function (options = {
                 $and: [
                   { $eq: ["$categoryId", "$categoryId"] },
                   // Admin sees count of all services, users see only approved
-                  ...(isAdmin ? [] : [{ $eq: ["$status", ServiceStatus.APPROVED] }]),
-                  { $ne: ["$isDeleted", true] }
-                ]
-              }
-            }
+                  ...(isAdmin
+                    ? []
+                    : [{ $eq: ["$status", ServiceStatus.APPROVED] }]),
+                  { $ne: ["$isDeleted", true] },
+                ],
+              },
+            },
           },
-          { $count: "count" }
+          { $count: "count" },
         ],
-        as: "servicesCountArray"
-      }
+        as: "servicesCountArray",
+      },
     },
     // Extract count from array
     {
       $addFields: {
         servicesCount: {
-          $ifNull: [{ $arrayElemAt: ["$servicesCountArray.count", 0] }, 0]
-        }
-      }
+          $ifNull: [{ $arrayElemAt: ["$servicesCountArray.count", 0] }, 0],
+        },
+      },
     },
     // Remove the temporary array
     {
-      $unset: "servicesCountArray"
+      $unset: "servicesCountArray",
     },
     // Sort categories
-    { $sort: { displayOrder: 1 } }
+    { $sort: { displayOrder: 1 } },
   ];
 
   // Add subcategories lookup if requested
@@ -356,13 +366,13 @@ categorySchema.statics.findWithServicesAggregation = async function (options = {
           {
             $match: {
               isActive: true,
-              isDeleted: false
-            }
+              isDeleted: false,
+            },
           },
-          { $sort: { displayOrder: 1 } }
+          { $sort: { displayOrder: 1 } },
         ],
-        as: "subcategories"
-      }
+        as: "subcategories",
+      },
     });
   }
 
@@ -383,10 +393,10 @@ categorySchema.statics.findWithServicesAggregation = async function (options = {
 // UPDATED: Simple method with admin support
 categorySchema.statics.findWithServices = async function (options = {}) {
   const { limit = 10, popularOnly = false, isAdmin = false } = options;
-  
+
   // Import ServiceModel - adjust path as needed
   const { ServiceModel } = await import("./service.model");
-  
+
   const categories = await this.find({ isActive: true, isDeleted: false })
     .sort({ displayOrder: 1 })
     .lean(); // Use lean for better performance
@@ -395,7 +405,7 @@ categorySchema.statics.findWithServices = async function (options = {}) {
   for (const category of categories) {
     const serviceQuery: any = {
       categoryId: category._id,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
     };
 
     // Role-based filtering
@@ -416,8 +426,8 @@ categorySchema.statics.findWithServices = async function (options = {}) {
         categoryId: category._id,
         // Admin sees count of all services, users see only approved
         ...(isAdmin ? {} : { status: ServiceStatus.APPROVED }),
-        isDeleted: { $ne: true }
-      })
+        isDeleted: { $ne: true },
+      }),
     ]);
 
     // Attach services data
