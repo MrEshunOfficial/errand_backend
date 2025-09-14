@@ -1,4 +1,3 @@
-// controllers/category.controller.ts
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { CategoryModel } from "../models/category.model";
@@ -8,7 +7,7 @@ import { ServiceModel } from "../models/service.model";
 
 export class CategoryController {
   // ==================== HELPER METHODS ====================
-  
+
   private static handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
     console.error(`${message}:`, error);
     
@@ -62,8 +61,14 @@ export class CategoryController {
     };
   }
 
-  private static buildCategoryQuery(query: any, includeInactive = false): any {
-    const filter: any = { isDeleted: false };
+  private static buildCategoryQuery(query: any, includeInactive = false, req?: Request, includeDeleted = false): any {
+    const filter: any = {};
+    if (!includeDeleted) {
+      filter.isDeleted = false;
+    } else if (req && !CategoryController.isAdminUser(req)) {
+      filter.isDeleted = false;
+    }
+    
     if (!includeInactive) filter.isActive = true;
     
     const { search, parentId } = query;
@@ -117,63 +122,45 @@ export class CategoryController {
   private static getUserId(req: AuthenticatedRequest): Types.ObjectId | undefined {
     return req.user?.id ? new Types.ObjectId(req.user.id) : undefined;
   }
-/**
- * Check if the authenticated user is admin or super admin
- * Returns false if no user is authenticated (public access)
- */
-private static isAdminUser(req: Request): boolean {
-  const authReq = req as AuthenticatedRequest;
-  const user = authReq.user;
-  
-  // If no user is authenticated, treat as non-admin (public access)
-  if (!user) {
-    return false;
+
+  private static isAdminUser(req: Request): boolean {
+    const authReq = req as AuthenticatedRequest;
+    const user = authReq.user;
+    
+    if (!user) {
+      return false;
+    }
+    
+    return user?.isAdmin === true || user?.isSuperAdmin === true;
   }
-  
-  // Check using the existing user properties
-  return user?.isAdmin === true || user?.isSuperAdmin === true;
-}
 
-/**
- * Build service query based on user role
- * - Admin/Super Admin: All services (except deleted)
- * - Regular/Unauthenticated: Only approved services
- */
-private static buildServiceQuery(categoryId: Types.ObjectId, req: Request, popularOnly = false): any {
-  const baseQuery = {
-    categoryId,
-    isDeleted: { $ne: true }
-  };
+  private static buildServiceQuery(categoryId: Types.ObjectId, req: Request, popularOnly = false): any {
+    const baseQuery = {
+      categoryId,
+      isDeleted: { $ne: true }
+    };
 
-  if (CategoryController.isAdminUser(req)) {
-    // Admin sees all services
-    return popularOnly ? { ...baseQuery, isPopular: true } : baseQuery;
-  } else {
-    // Regular users and unauthenticated users see only approved services
-    return popularOnly 
-      ? { ...baseQuery, status: ServiceStatus.APPROVED, isPopular: true }
-      : { ...baseQuery, status: ServiceStatus.APPROVED };
+    if (CategoryController.isAdminUser(req)) {
+      return popularOnly ? { ...baseQuery, isPopular: true } : baseQuery;
+    } else {
+      return popularOnly 
+        ? { ...baseQuery, status: ServiceStatus.APPROVED, isPopular: true }
+        : { ...baseQuery, status: ServiceStatus.APPROVED };
+    }
   }
-}
 
-/**
- * Build service count query based on user role
- */
-private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request): any {
-  const baseQuery = {
-    categoryId,
-    isDeleted: { $ne: true }
-  };
+  private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request): any {
+    const baseQuery = {
+      categoryId,
+      isDeleted: { $ne: true }
+    };
 
-  if (CategoryController.isAdminUser(req)) {
-    // Admin counts all services
-    return baseQuery;
-  } else {
-    // Regular users and unauthenticated users count only approved services
-    return { ...baseQuery, status: ServiceStatus.APPROVED };
+    if (CategoryController.isAdminUser(req)) {
+      return baseQuery;
+    } else {
+      return { ...baseQuery, status: ServiceStatus.APPROVED };
+    }
   }
-}
-
 
   // ==================== PUBLIC METHODS ====================
 
@@ -191,19 +178,18 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       } = req.query;
 
       const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
-      const query = CategoryController.buildCategoryQuery(req.query, includeInactive === "true");
+      const includeDeleted = CategoryController.isAdminUser(req);
+      const query = CategoryController.buildCategoryQuery(req.query, includeInactive === "true", req, includeDeleted);
       const sort = CategoryController.buildSortOptions(
         req.query.sortBy as string,
         req.query.sortOrder as string
       );
 
-      // Get categories without services first
       const [categories, total] = await Promise.all([
         CategoryModel.find(query).sort(sort).skip(skip).limit(limit).lean(),
         CategoryModel.countDocuments(query),
       ]);
 
-      // Manually populate services for each category with role-based filtering
       const categoriesWithServices: CategoryWithServices[] = [];
 
       for (const category of categories) {
@@ -214,7 +200,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         );
         const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
 
-        // Get services and count in parallel
         const [services, servicesCount] = await Promise.all([
           ServiceModel.find(serviceQuery)
             .limit(Number(servicesLimit))
@@ -223,14 +208,12 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
           ServiceModel.countDocuments(serviceCountQuery)
         ]);
 
-        // Create properly typed category with services
         const categoryWithServices: CategoryWithServices = {
           ...category,
           services,
           servicesCount
         };
 
-        // Get subcategories if requested (also apply role-based filtering)
         if (includeSubcategories === "true") {
           const subcategories = await CategoryModel.find({
             parentCategoryId: category._id,
@@ -238,7 +221,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
             isDeleted: false
           }).sort({ displayOrder: 1 }).lean();
 
-          // Apply same filtering to subcategory services
           const subcategoriesWithServices = await Promise.all(
             subcategories.map(async (subcat) => {
               const subcatServiceCountQuery = CategoryController.buildServiceCountQuery(subcat._id, req);
@@ -257,7 +239,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         categoriesWithServices.push(categoryWithServices);
       }
 
-      // Populate user data if requested
       if (includeUserData === "true") {
         await CategoryModel.populate(categoriesWithServices, [
           { path: "createdBy", select: "name email displayName" },
@@ -284,19 +265,18 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       const includeInactive = req.query.includeInactive === "true";
       const includeServices = req.query.includeServices === "true";
 
-      // If services are requested, use the specialized method
       if (includeServices) {
         return CategoryController.getCategoriesWithServices(req, res);
       }
 
       const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
-      const query = CategoryController.buildCategoryQuery(req.query, includeInactive);
+      const includeDeleted = CategoryController.isAdminUser(req);
+      const query = CategoryController.buildCategoryQuery(req.query, includeInactive, req, includeDeleted);
       const sort = CategoryController.buildSortOptions(
         req.query.sortBy as string,
         req.query.sortOrder as string
       );
 
-      // Get categories
       let categoryQuery = CategoryModel.find(query);
       
       if (includeSubcategories) {
@@ -314,7 +294,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         CategoryModel.countDocuments(query),
       ]);
 
-      // Add services count with role-based filtering
       const categoriesWithCounts: CategoryWithServices[] = await Promise.all(
         categories.map(async (category): Promise<CategoryWithServices> => {
           const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
@@ -322,7 +301,7 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
           
           return {
             ...category,
-            services: [], // Empty array when not requested
+            services: [],
             servicesCount
           };
         })
@@ -342,6 +321,164 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
   }
 
   /**
+   * Get deleted categories - admin only
+   */
+  static async getDeletedCategories(req: Request, res: Response): Promise<void> {
+    try {
+      if (!CategoryController.isAdminUser(req)) {
+        CategoryController.sendBadRequestResponse(res, "Only admin users can access deleted categories");
+        return;
+      }
+
+      const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
+      const { includeUserData = false, includeSubcategories = false } = req.query;
+
+      const query = {
+        isDeleted: true
+      };
+
+      const sort = CategoryController.buildSortOptions(
+        req.query.sortBy as string,
+        req.query.sortOrder as string
+      );
+
+      let categoryQuery = CategoryModel.find(query);
+
+      if (includeSubcategories) {
+        categoryQuery = categoryQuery.populate("subcategories");
+      }
+
+      if (includeUserData === "true") {
+        categoryQuery = categoryQuery
+          .populate("createdBy", "name email displayName")
+          .populate("lastModifiedBy", "name email displayName");
+      }
+
+      const [categories, total] = await Promise.all([
+        categoryQuery.sort(sort).skip(skip).limit(limit).lean(),
+        CategoryModel.countDocuments(query),
+      ]);
+
+      const categoriesWithCounts: CategoryWithServices[] = await Promise.all(
+        categories.map(async (category): Promise<CategoryWithServices> => {
+          const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
+          const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
+          
+          return {
+            ...category,
+            services: [],
+            servicesCount
+          };
+        })
+      );
+
+      CategoryController.sendSuccessResponse(res, {
+        categories: categoriesWithCounts,
+        pagination: CategoryController.buildPaginationResponse(page, limit, total),
+      }, "Deleted categories fetched successfully");
+    } catch (error) {
+      CategoryController.handleError(res, error, "Failed to fetch deleted categories");
+    }
+  }
+
+  /**
+   * Get deleted category by ID - admin only
+   */
+  static async getDeletedCategoryById(req: Request, res: Response): Promise<void> {
+    try {
+      if (!CategoryController.isAdminUser(req)) {
+        CategoryController.sendBadRequestResponse(res, "Only admin users can access deleted categories");
+        return;
+      }
+
+      const { id } = req.params;
+      const { 
+        includeSubcategories = false, 
+        includeUserData = false,
+        includeServices = false,
+        servicesLimit = 10,
+        popularOnly = false
+      } = req.query;
+
+      if (!CategoryController.validateObjectId(id)) {
+        CategoryController.sendBadRequestResponse(res, "Invalid category ID");
+        return;
+      }
+
+      const query = { _id: id, isDeleted: true };
+      const category = await CategoryModel.findOne(query).lean();
+
+      if (!category) {
+        CategoryController.sendNotFoundResponse(res, "Deleted category not found");
+        return;
+      }
+
+      const categoryData: any = { ...category };
+
+      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
+      categoryData.servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
+
+      if (includeServices === "true") {
+        const serviceQuery = CategoryController.buildServiceQuery(
+          category._id, 
+          req, 
+          popularOnly === "true"
+        );
+        
+        categoryData.services = await ServiceModel.find(serviceQuery)
+          .limit(Number(servicesLimit))
+          .sort({ createdAt: -1 })
+          .lean();
+      }
+
+      if (includeSubcategories === "true") {
+        const subcategories = await CategoryModel.find({
+          parentCategoryId: category._id,
+          isActive: true,
+          isDeleted: false
+        }).sort({ displayOrder: 1 }).lean();
+
+        const subcategoriesWithServices = await Promise.all(
+          subcategories.map(async (subcat) => {
+            const subcatData: any = { ...subcat };
+            
+            const subcatServiceCountQuery = CategoryController.buildServiceCountQuery(subcat._id, req);
+            subcatData.servicesCount = await ServiceModel.countDocuments(subcatServiceCountQuery);
+
+            if (includeServices === "true") {
+              const subcatServiceQuery = CategoryController.buildServiceQuery(
+                subcat._id, 
+                req, 
+                popularOnly === "true"
+              );
+              
+              subcatData.services = await ServiceModel.find(subcatServiceQuery)
+                .limit(Number(servicesLimit))
+                .sort({ createdAt: -1 })
+                .lean();
+            }
+
+            return subcatData;
+          })
+        );
+
+        categoryData.subcategories = subcategoriesWithServices;
+      }
+
+      if (includeUserData === "true") {
+        await CategoryModel.populate(categoryData, [
+          { path: "createdBy", select: "name email displayName" },
+          { path: "lastModifiedBy", select: "name email displayName" }
+        ]);
+      }
+
+      CategoryController.sendSuccessResponse(res, { category: categoryData }, "Deleted category fetched successfully");
+    } catch (error) {
+      CategoryController.handleError(res, error, "Failed to fetch deleted category");
+    }
+  }
+
+  /**
    * Get parent categories (categories with no parent)
    */
   static async getParentCategories(req: Request, res: Response): Promise<void> {
@@ -356,7 +493,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         popularOnly = false
       } = req.query;
 
-      // Build the base query
       const baseQuery = {
         parentCategoryId: null,
         isDeleted: false,
@@ -367,18 +503,15 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         .sort({ displayOrder: 1 })
         .lean();
 
-      // Manually populate services and subcategories with role-based filtering
       const categoriesWithData = await Promise.all(
         categories.map(async (category) => {
           const categoryData: any = { ...category };
 
-          // Include services count if requested
           if (includeServicesCount === "true") {
             const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
             categoryData.servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
           }
 
-          // Include services if requested
           if (includeServices === "true") {
             const serviceQuery = CategoryController.buildServiceQuery(
               category._id, 
@@ -392,7 +525,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
               .lean();
           }
 
-          // Include subcategories if requested
           if (includeSubcategories === "true") {
             const subcategories = await CategoryModel.find({
               parentCategoryId: category._id,
@@ -400,7 +532,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
               ...(includeInactive !== "true" && { isActive: true })
             }).sort({ displayOrder: 1 }).lean();
 
-            // Apply role-based filtering to subcategory services if needed
             const subcategoriesWithServices = await Promise.all(
               subcategories.map(async (subcat) => {
                 const subcatData: any = { ...subcat };
@@ -434,7 +565,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         })
       );
 
-      // Populate user data if requested
       if (includeUserData === "true") {
         await CategoryModel.populate(categoriesWithData, [
           { path: "createdBy", select: "name email displayName" },
@@ -467,7 +597,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         isDeleted: false
       }).sort({ displayOrder: 1 }).lean();
 
-      // Add services count with role-based filtering
       const subcategoriesWithCounts = await Promise.all(
         subcategories.map(async (subcat) => {
           const serviceCountQuery = CategoryController.buildServiceCountQuery(subcat._id, req);
@@ -480,7 +609,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         })
       );
 
-      // Populate user data if requested
       if (includeUserData === "true") {
         await CategoryModel.populate(subcategoriesWithCounts, [
           { path: "createdBy", select: "name email displayName" },
@@ -530,11 +658,9 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
 
       const categoryData: any = { ...category };
 
-      // Add services count with role-based filtering
       const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
       categoryData.servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
 
-      // Include services if requested
       if (includeServices === "true") {
         const serviceQuery = CategoryController.buildServiceQuery(
           category._id, 
@@ -548,7 +674,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
           .lean();
       }
 
-      // Include subcategories if requested
       if (includeSubcategories === "true") {
         const subcategories = await CategoryModel.find({
           parentCategoryId: category._id,
@@ -556,7 +681,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
           isDeleted: false
         }).sort({ displayOrder: 1 }).lean();
 
-        // Apply role-based filtering to subcategory services
         const subcategoriesWithServices = await Promise.all(
           subcategories.map(async (subcat) => {
             const subcatData: any = { ...subcat };
@@ -584,7 +708,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         categoryData.subcategories = subcategoriesWithServices;
       }
 
-      // Populate user data if requested
       if (!isSlug || includeUserData === "true") {
         await CategoryModel.populate(categoryData, [
           { path: "createdBy", select: "name email displayName" },
@@ -624,7 +747,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         displayOrder, metaDescription
       } = req.body;
 
-      // Validate parent category if provided
       if (parentCategoryId) {
         const validationError = await CategoryController.validateParentCategory(parentCategoryId);
         if (validationError) {
@@ -646,13 +768,11 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       const category = new CategoryModel(categoryData);
       await category.save();
 
-      // Populate user data in the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
       ]);
 
-      // Add services count with role-based filtering
       const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
       const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
       
@@ -685,7 +805,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         return;
       }
 
-      // Validate parent category if being updated
       if (updateData.parentCategoryId) {
         const validationError = await CategoryController.validateParentCategory(updateData.parentCategoryId, id);
         if (validationError) {
@@ -701,8 +820,7 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         id, updateData, { new: true, runValidators: true }
       ).lean();
 
-      // Add services count and populate manually
-     const serviceCountQuery = CategoryController.buildServiceCountQuery(updatedCategory!._id, req);
+      const serviceCountQuery = CategoryController.buildServiceCountQuery(updatedCategory!._id, req);
       const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
 
       const categoryWithData = {
@@ -710,7 +828,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         servicesCount
       };
 
-      // Populate user data
       await CategoryModel.populate(categoryWithData, [
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
@@ -735,7 +852,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         return;
       }
 
-      // Check if category has active subcategories
       const subcategoriesCount = await CategoryModel.countDocuments({
         parentCategoryId: id,
         isDeleted: false,
@@ -775,11 +891,9 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       category.lastModifiedBy = CategoryController.getUserId(req);
       await category.save();
 
-      // Add services count with role-based filtering
       const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
       const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
 
-      // Populate user data for the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
@@ -813,11 +927,9 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       category.lastModifiedBy = CategoryController.getUserId(req);
       await category.save();
 
-      // Add services count with role-based filtering
       const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
       const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
 
-      // Populate user data for the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
@@ -862,7 +974,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
 
       const updatedCategories = await Promise.all(updatePromises);
       
-      // Populate user data for updated categories
       const populatedCategories = await Promise.all(
         updatedCategories.map(category => 
           category?.populate([
@@ -914,7 +1025,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         .sort({ score: { $meta: "textScore" } })
         .lean();
 
-      // Add services count with role-based filtering
       const categoriesWithCounts = await Promise.all(
         categories.map(async (category) => {
           const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
@@ -927,7 +1037,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         })
       );
 
-      // Populate user data if requested
       if (includeUserData === "true") {
         await CategoryModel.populate(categoriesWithCounts, [
           { path: "createdBy", select: "name email displayName" },
@@ -949,7 +1058,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
       const { id } = req.params;
       const { moderationStatus, moderationNotes } = req.body;
 
-      // Validate moderation status
       if (!Object.values(ModerationStatus).includes(moderationStatus)) {
         CategoryController.sendBadRequestResponse(res, "Invalid moderation status");
         return;
@@ -961,31 +1069,24 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         return;
       }
 
-      // Update moderation status
       category.moderationStatus = moderationStatus;
       category.lastModifiedBy = CategoryController.getUserId(req);
       
-      // Add moderation notes if provided (you might need to add this field to your schema)
       if (moderationNotes) {
         category.moderationNotes = moderationNotes;
       }
 
-      // If approved, ensure category is active
       if (moderationStatus === ModerationStatus.APPROVED) {
         category.isActive = true;
-      }
-      // If rejected, deactivate category
-      else if (moderationStatus === ModerationStatus.REJECTED) {
+      } else if (moderationStatus === ModerationStatus.REJECTED) {
         category.isActive = false;
       }
 
       await category.save();
 
-      // Add services count with role-based filtering
       const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
       const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
 
-      // Populate user data for the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
@@ -1012,7 +1113,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
     try {
       const { categoryIds, moderationStatus, moderationNotes } = req.body;
 
-      // Validate input
       if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
         CategoryController.sendBadRequestResponse(res, "Category IDs array is required and cannot be empty");
         return;
@@ -1023,14 +1123,12 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         return;
       }
 
-      // Validate all category IDs
       const invalidIds = categoryIds.filter(id => !CategoryController.validateObjectId(id));
       if (invalidIds.length > 0) {
         CategoryController.sendBadRequestResponse(res, `Invalid category IDs: ${invalidIds.join(', ')}`);
         return;
       }
 
-      // Find all categories that exist and are not deleted
       const categories = await CategoryModel.find({
         _id: { $in: categoryIds },
         isDeleted: false
@@ -1041,7 +1139,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         return;
       }
 
-      // Check if any categories were not found
       const foundIds = categories.map(cat => cat._id.toString());
       const notFoundIds = categoryIds.filter(id => !foundIds.includes(id));
 
@@ -1053,30 +1150,25 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         moderatedAt: new Date()
       };
 
-      // Add moderation notes if provided
       if (moderationNotes) {
         updateData.moderationNotes = moderationNotes;
       }
 
-      // Set active status based on moderation status
       if (moderationStatus === ModerationStatus.APPROVED) {
         updateData.isActive = true;
       } else if (moderationStatus === ModerationStatus.REJECTED) {
         updateData.isActive = false;
       }
 
-      // Bulk update
       const updateResult = await CategoryModel.updateMany(
         { _id: { $in: foundIds } },
         updateData
       );
 
-      // Get updated categories with services count
       const updatedCategories = await CategoryModel.find({
         _id: { $in: foundIds }
       }).lean();
 
-      // Add services count to each category
       const categoriesWithCounts = await Promise.all(
         updatedCategories.map(async (category) => {
           const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
@@ -1089,7 +1181,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         })
       );
 
-      // Populate user data
       await CategoryModel.populate(categoriesWithCounts, [
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" }
@@ -1100,7 +1191,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         categories: categoriesWithCounts
       };
 
-      // Include information about not found categories if any
       if (notFoundIds.length > 0) {
         response.notFound = notFoundIds;
         response.message = `${categoriesWithCounts.length} categories ${moderationStatus.toLowerCase()} successfully. ${notFoundIds.length} categories not found.`;
@@ -1130,14 +1220,13 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
 
       const [categories, total] = await Promise.all([
         CategoryModel.find(query)
-          .sort({ createdAt: 1 }) // Oldest first for moderation queue
+          .sort({ createdAt: 1 })
           .skip(skip)
           .limit(limit)
           .lean(),
         CategoryModel.countDocuments(query)
       ]);
 
-      // Add services count to each category
       const categoriesWithCounts = await Promise.all(
         categories.map(async (category) => {
           const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
@@ -1150,7 +1239,6 @@ private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request):
         })
       );
 
-      // Populate user data if requested
       if (includeUserData === "true") {
         await CategoryModel.populate(categoriesWithCounts, [
           { path: "createdBy", select: "name email displayName" },

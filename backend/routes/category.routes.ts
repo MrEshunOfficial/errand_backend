@@ -4,7 +4,7 @@ import { CategoryController } from "../controllers/category.controller";
 
 const router = express.Router();
 
-// Public routes with optional authentication (supports role-based filtering)
+// Public routes with optional authentication (supports role-based filtering for admins)
 router.get("/", optionalAuth, CategoryController.getCategories);
 router.get("/with-services", optionalAuth, CategoryController.getCategoriesWithServices);
 router.get("/parents", optionalAuth, CategoryController.getParentCategories);
@@ -13,12 +13,13 @@ router.get("/parents/:parentId/subcategories", optionalAuth, CategoryController.
 router.get("/slug/:slug", optionalAuth, CategoryController.getCategoryBySlug);
 router.get("/:id", optionalAuth, CategoryController.getCategoryById);
 
-// Admin moderation routes
+// Admin-only routes
+router.get("/admin/all", authenticateToken, requireAdmin, CategoryController.getCategories);
+router.get("/admin/deleted", authenticateToken, requireAdmin, CategoryController.getDeletedCategories);
+router.get("/admin/deleted/:id", authenticateToken, requireAdmin, CategoryController.getDeletedCategoryById);
 router.get("/moderation/pending", authenticateToken, requireAdmin, CategoryController.getPendingCategories);
 router.patch("/:id/moderate", authenticateToken, requireAdmin, CategoryController.moderateCategory);
 router.patch("/moderate/bulk", authenticateToken, requireAdmin, CategoryController.bulkModerateCategories);
-
-// Protected routes (admin only)
 router.post("/", authenticateToken, requireAdmin, CategoryController.createCategory);
 router.put("/:id", authenticateToken, requireAdmin, CategoryController.updateCategory);
 router.delete("/:id", authenticateToken, requireAdmin, CategoryController.deleteCategory);
