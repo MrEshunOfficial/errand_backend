@@ -1,36 +1,19 @@
+// controllers/category.controller.ts
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { CategoryModel } from "../models/category.model";
 import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils";
-import {
-  CategoryWithServices,
-  ModerationStatus,
-  ServiceStatus,
-  SystemRole,
-} from "../types";
-import { ServiceModel } from "../models/service.model";
+import { ModerationStatus } from "../types";
 
 export class CategoryController {
-  // ==================== HELPER METHODS ====================
-
-<<<<<<< HEAD
+  // Helper methods
   private static handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
-=======
-  private static handleError(
-    res: Response,
-    error: unknown,
-    message: string,
-    statusCode = 500
-  ): void {
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
     console.error(`${message}:`, error);
-
+    
     if (error instanceof Error && error.message.includes("duplicate key")) {
       res.status(400).json({
         success: false,
-        message: message.includes("create")
-          ? "Category with this name already exists"
-          : "A category with this name already exists",
+        message: message.includes("create") ? "Category with this name already exists" : "A category with this name already exists",
       });
       return;
     }
@@ -46,10 +29,7 @@ export class CategoryController {
     return Types.ObjectId.isValid(id);
   }
 
-  private static sendNotFoundResponse(
-    res: Response,
-    message = "Category not found"
-  ): void {
+  private static sendNotFoundResponse(res: Response, message = "Category not found"): void {
     res.status(404).json({ success: false, message });
   }
 
@@ -57,11 +37,7 @@ export class CategoryController {
     res.status(400).json({ success: false, message });
   }
 
-  private static sendSuccessResponse(
-    res: Response,
-    data?: any,
-    message?: string
-  ): void {
+  private static sendSuccessResponse(res: Response, data?: any, message?: string): void {
     const response: any = { success: true };
     if (data) response.data = data;
     if (message) response.message = message;
@@ -75,11 +51,7 @@ export class CategoryController {
     return { page, limit, skip };
   }
 
-  private static buildPaginationResponse(
-    page: number,
-    limit: number,
-    total: number
-  ) {
+  private static buildPaginationResponse(page: number, limit: number, total: number) {
     return {
       page,
       limit,
@@ -88,61 +60,43 @@ export class CategoryController {
     };
   }
 
-  private static buildCategoryQuery(query: any, includeInactive = false, req?: Request, includeDeleted = false): any {
-    const filter: any = {};
-    if (!includeDeleted) {
-      filter.isDeleted = false;
-    } else if (req && !CategoryController.isAdminUser(req)) {
-      filter.isDeleted = false;
+ private static buildCategoryQuery(query: any, includeInactive = false): any {
+  const filter: any = { isDeleted: false };
+  if (!includeInactive) filter.isActive = true;
+  
+  const { search, parentId } = query;
+
+  if (search) filter.$text = { $search: search as string };
+  
+  if (parentId && parentId !== "null") {
+    if (!CategoryController.validateObjectId(parentId as string)) {
+      throw new Error("Invalid parent category ID");
     }
-    
-    if (!includeInactive) filter.isActive = true;
-
-    const { search, parentId } = query;
-
-    if (search) filter.$text = { $search: search as string };
-
-    if (parentId && parentId !== "null") {
-      if (!CategoryController.validateObjectId(parentId as string)) {
-        throw new Error("Invalid parent category ID");
-      }
-      filter.parentCategoryId = new Types.ObjectId(parentId as string);
-    } else if (parentId === null || parentId === "null") {
-      filter.parentCategoryId = null;
-    }
-
-    return filter;
+    filter.parentCategoryId = new Types.ObjectId(parentId as string);
+  } else if (parentId === null || parentId === "null") {
+    filter.parentCategoryId = null;
   }
 
-  private static buildSortOptions(
-    sortBy = "displayOrder",
-    sortOrder = "asc"
-  ): any {
+  return filter;
+}
+
+  private static buildSortOptions(sortBy = "displayOrder", sortOrder = "asc"): any {
     const sort: any = {};
     sort[sortBy as string] = sortOrder === "desc" ? -1 : 1;
     return sort;
   }
 
-  private static async findCategoryById(
-    id: string,
-    includeDeleted = false
-  ): Promise<any> {
+  private static async findCategoryById(id: string, includeDeleted = false): Promise<any> {
     if (!CategoryController.validateObjectId(id)) return null;
-
+    
     const filter: any = { _id: id };
     if (!includeDeleted) filter.isDeleted = { $ne: true };
-
+    
     return await CategoryModel.findOne(filter);
   }
 
-  private static async validateParentCategory(
-    parentCategoryId: string,
-    currentId?: string
-  ): Promise<string | null> {
-    if (
-      !parentCategoryId ||
-      !CategoryController.validateObjectId(parentCategoryId)
-    ) {
+  private static async validateParentCategory(parentCategoryId: string, currentId?: string): Promise<string | null> {
+    if (!parentCategoryId || !CategoryController.validateObjectId(parentCategoryId)) {
       return "Invalid parent category ID";
     }
 
@@ -158,272 +112,123 @@ export class CategoryController {
     return null;
   }
 
-  private static getUserId(
-    req: AuthenticatedRequest
-  ): Types.ObjectId | undefined {
+  private static getUserId(req: AuthenticatedRequest): Types.ObjectId | undefined {
     return req.user?.id ? new Types.ObjectId(req.user.id) : undefined;
   }
-<<<<<<< HEAD
 
-  private static isAdminUser(req: Request): boolean {
-    const authReq = req as AuthenticatedRequest;
-    const user = authReq.user;
-    
-    if (!user) {
-      return false;
-    }
-    
-    return user?.isAdmin === true || user?.isSuperAdmin === true;
-  }
-
-  private static buildServiceQuery(categoryId: Types.ObjectId, req: Request, popularOnly = false): any {
-    const baseQuery = {
-      categoryId,
-      isDeleted: { $ne: true }
-    };
-
-    if (CategoryController.isAdminUser(req)) {
-      return popularOnly ? { ...baseQuery, isPopular: true } : baseQuery;
-    } else {
-      return popularOnly 
-=======
-  /**
-   * Check if the authenticated user is admin or super admin
-   * Returns false if no user is authenticated (public access)
-   */
-  private static isAdminUser(req: Request): boolean {
-    const authReq = req as AuthenticatedRequest;
-    const user = authReq.user;
-
-    // If no user is authenticated, treat as non-admin (public access)
-    if (!user) {
-      return false;
-    }
-
-    // Check using the existing user properties
-    return user?.isAdmin === true || user?.isSuperAdmin === true;
-  }
-
-  /**
-   * Build service query based on user role
-   * - Admin/Super Admin: All services (except deleted)
-   * - Regular/Unauthenticated: Only approved services
-   */
-  private static buildServiceQuery(
-    categoryId: Types.ObjectId,
-    req: Request,
-    popularOnly = false
-  ): any {
-    const baseQuery = {
-      categoryId,
-      isDeleted: { $ne: true },
-    };
-
-    if (CategoryController.isAdminUser(req)) {
-      // Admin sees all services
-      return popularOnly ? { ...baseQuery, isPopular: true } : baseQuery;
-    } else {
-      // Regular users and unauthenticated users see only approved services
-      return popularOnly
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-        ? { ...baseQuery, status: ServiceStatus.APPROVED, isPopular: true }
-        : { ...baseQuery, status: ServiceStatus.APPROVED };
-    }
-  }
-
-<<<<<<< HEAD
-  private static buildServiceCountQuery(categoryId: Types.ObjectId, req: Request): any {
-    const baseQuery = {
-      categoryId,
-      isDeleted: { $ne: true }
-    };
-
-    if (CategoryController.isAdminUser(req)) {
-      return baseQuery;
-    } else {
-=======
-  /**
-   * Build service count query based on user role
-   */
-  private static buildServiceCountQuery(
-    categoryId: Types.ObjectId,
-    req: Request
-  ): any {
-    const baseQuery = {
-      categoryId,
-      isDeleted: { $ne: true },
-    };
-
-    if (CategoryController.isAdminUser(req)) {
-      // Admin counts all services
-      return baseQuery;
-    } else {
-      // Regular users and unauthenticated users count only approved services
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-      return { ...baseQuery, status: ServiceStatus.APPROVED };
-    }
-  }
-
-  // ==================== PUBLIC METHODS ====================
-
-  /**
-   * Get categories with services - role-based service filtering
-   */
-  static async getCategoriesWithServices(
-    req: Request,
-    res: Response
-  ): Promise<void> {
+    static async getCategoriesWithServices(req: Request, res: Response): Promise<void> {
     try {
-      const {
-        servicesLimit = 10,
+      const { 
+        servicesLimit = 10, 
         popularOnly = false,
         includeSubcategories = false,
         includeUserData = false,
-        includeInactive = false,
+        includeInactive = false 
       } = req.query;
 
-<<<<<<< HEAD
       const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
-      const includeDeleted = CategoryController.isAdminUser(req);
-      const query = CategoryController.buildCategoryQuery(req.query, includeInactive === "true", req, includeDeleted);
-=======
-      const { page, limit, skip } = CategoryController.getPaginationParams(
-        req.query
-      );
-      const query = CategoryController.buildCategoryQuery(
-        req.query,
-        includeInactive === "true"
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-      const sort = CategoryController.buildSortOptions(
-        req.query.sortBy as string,
-        req.query.sortOrder as string
-      );
-
-      const [categories, total] = await Promise.all([
-        CategoryModel.find(query).sort(sort).skip(skip).limit(limit).lean(),
-        CategoryModel.countDocuments(query),
-      ]);
-
-      const categoriesWithServices: CategoryWithServices[] = [];
-
-      for (const category of categories) {
-        const serviceQuery = CategoryController.buildServiceQuery(
-          category._id,
-          req,
-          popularOnly === "true"
-        );
-        const serviceCountQuery = CategoryController.buildServiceCountQuery(
-          category._id,
-          req
-        );
-
-        const [services, servicesCount] = await Promise.all([
-          ServiceModel.find(serviceQuery)
-            .limit(Number(servicesLimit))
-            .sort({ createdAt: -1 })
-            .lean(),
-          ServiceModel.countDocuments(serviceCountQuery),
-        ]);
-
-        const categoryWithServices: CategoryWithServices = {
-          ...category,
-          services,
-          servicesCount,
-        };
-
-        if (includeSubcategories === "true") {
-          const subcategories = await CategoryModel.find({
-            parentCategoryId: category._id,
-            isActive: true,
-            isDeleted: false,
-          })
-            .sort({ displayOrder: 1 })
-            .lean();
-
-          const subcategoriesWithServices = await Promise.all(
-            subcategories.map(async (subcat) => {
-              const subcatServiceCountQuery =
-                CategoryController.buildServiceCountQuery(subcat._id, req);
-              const subcatServicesCount = await ServiceModel.countDocuments(
-                subcatServiceCountQuery
-              );
-
-              return {
-                ...subcat,
-                servicesCount: subcatServicesCount,
-              };
-            })
-          );
-
-          categoryWithServices.subcategories = subcategoriesWithServices;
-        }
-
-        categoriesWithServices.push(categoryWithServices);
-      }
-
-      if (includeUserData === "true") {
-        await CategoryModel.populate(categoriesWithServices, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
-      }
-
-      CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithServices,
-        pagination: CategoryController.buildPaginationResponse(
-          page,
-          limit,
-          total
-        ),
-      });
-    } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to fetch categories with services"
-      );
-    }
-  }
-
-  /**
-   * Get categories - with optional services
-   */
-  static async getCategories(req: Request, res: Response): Promise<void> {
-    try {
-      const includeSubcategories = req.query.includeSubcategories === "true";
-      const includeUserData = req.query.includeUserData === "true";
-      const includeInactive = req.query.includeInactive === "true";
-      const includeServices = req.query.includeServices === "true";
-
-      if (includeServices) {
-        return CategoryController.getCategoriesWithServices(req, res);
-      }
-
-<<<<<<< HEAD
-      const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
-      const includeDeleted = CategoryController.isAdminUser(req);
-      const query = CategoryController.buildCategoryQuery(req.query, includeInactive, req, includeDeleted);
-=======
-      const { page, limit, skip } = CategoryController.getPaginationParams(
-        req.query
-      );
-      const query = CategoryController.buildCategoryQuery(
-        req.query,
-        includeInactive
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
+      const query = CategoryController.buildCategoryQuery(req.query, includeInactive === "true");
       const sort = CategoryController.buildSortOptions(
         req.query.sortBy as string,
         req.query.sortOrder as string
       );
 
       let categoryQuery = CategoryModel.find(query);
+      
+      // Populate services based on preference
+      if (popularOnly === "true") {
+        categoryQuery = categoryQuery.populate({
+          path: "popularServices",
+          options: { limit: Number(servicesLimit) }
+        });
+      } else {
+        categoryQuery = categoryQuery.populate({
+          path: "services",
+          options: { 
+            limit: Number(servicesLimit),
+            sort: { createdAt: -1 }
+          }
+        });
+      }
 
+      // Always include services count
+      categoryQuery = categoryQuery.populate("servicesCount");
+      
+      // Apply other populations based on query parameters
+      if (includeSubcategories === "true") {
+        categoryQuery = categoryQuery.populate("subcategories");
+      }
+      
+      if (includeUserData === "true") {
+        categoryQuery = categoryQuery
+          .populate("createdBy", "name email displayName")
+          .populate("lastModifiedBy", "name email displayName");
+      }
+
+      const [categories, total] = await Promise.all([
+        categoryQuery.sort(sort).skip(skip).limit(limit),
+        CategoryModel.countDocuments(query),
+      ]);
+
+      CategoryController.sendSuccessResponse(res, {
+        categories,
+        pagination: CategoryController.buildPaginationResponse(page, limit, total),
+      });
+    } catch (error) {
+      CategoryController.handleError(res, error, "Failed to fetch categories with services");
+    }
+  }
+
+// Enhanced getCategories with optional services population
+  static async getCategories(req: Request, res: Response): Promise<void> {
+    try {
+      // Convert query flags into proper booleans
+      const includeSubcategories =
+        typeof req.query.includeSubcategories === "string" &&
+        req.query.includeSubcategories === "true";
+
+      const includeUserData = 
+        typeof req.query.includeUserData === "string" &&
+        req.query.includeUserData === "true";
+
+      const includeInactive = 
+        typeof req.query.includeInactive === "string" &&
+        req.query.includeInactive === "true";
+
+      // NEW: Add includeServices option
+      const includeServices = 
+        typeof req.query.includeServices === "string" &&
+        req.query.includeServices === "true";
+
+      const servicesLimit = Number(req.query.servicesLimit) || 5;
+
+      const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
+      const query = CategoryController.buildCategoryQuery(req.query, includeInactive);
+      const sort = CategoryController.buildSortOptions(
+        req.query.sortBy as string,
+        req.query.sortOrder as string
+      );
+
+      let categoryQuery = CategoryModel.find(query);
+      
+      // Apply population based on query parameters
       if (includeSubcategories) {
         categoryQuery = categoryQuery.populate("subcategories");
       }
-
+      
+      categoryQuery = categoryQuery.populate("servicesCount");
+      
+      // NEW: Optionally include services
+      if (includeServices) {
+        categoryQuery = categoryQuery.populate({
+          path: "services",
+          options: { 
+            limit: servicesLimit,
+            sort: { createdAt: -1 }
+          }
+        });
+      }
+      
       if (includeUserData) {
         categoryQuery = categoryQuery
           .populate("createdBy", "name email displayName")
@@ -431,40 +236,13 @@ export class CategoryController {
       }
 
       const [categories, total] = await Promise.all([
-        categoryQuery.sort(sort).skip(skip).limit(limit).lean(),
+        categoryQuery.sort(sort).skip(skip).limit(limit),
         CategoryModel.countDocuments(query),
       ]);
 
-      const categoriesWithCounts: CategoryWithServices[] = await Promise.all(
-        categories.map(async (category): Promise<CategoryWithServices> => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(
-            category._id,
-            req
-          );
-          const servicesCount = await ServiceModel.countDocuments(
-            serviceCountQuery
-          );
-
-          return {
-            ...category,
-<<<<<<< HEAD
-            services: [],
-            servicesCount
-=======
-            services: [], // Empty array when not requested
-            servicesCount,
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-          };
-        })
-      );
-
       CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithCounts,
-        pagination: CategoryController.buildPaginationResponse(
-          page,
-          limit,
-          total
-        ),
+        categories,
+        pagination: CategoryController.buildPaginationResponse(page, limit, total),
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes("Invalid parent")) {
@@ -475,359 +253,119 @@ export class CategoryController {
     }
   }
 
-  /**
-   * Get deleted categories - admin only
-   */
-  static async getDeletedCategories(req: Request, res: Response): Promise<void> {
+
+ // Updated getParentCategories method
+  static async getParentCategories(req: Request, res: Response): Promise<void> {
     try {
-      if (!CategoryController.isAdminUser(req)) {
-        CategoryController.sendBadRequestResponse(res, "Only admin users can access deleted categories");
-        return;
+      const { 
+        includeSubcategories = false, 
+        includeServicesCount = false, 
+        includeUserData = false,
+        includeInactive = false,
+        // NEW: Add services options
+        includeServices = false,
+        servicesLimit = 5,
+        popularOnly = false
+      } = req.query;
+
+      // Build the base query with includeInactive support
+      let query = CategoryModel.find({
+        parentCategoryId: null,
+        isDeleted: false,
+        ...(includeInactive !== "true" && { isActive: true })
+      });
+      
+      if (includeSubcategories === "true") {
+        query = query.populate({
+          path: "subcategories",
+          // Optionally populate services for subcategories too
+          ...(includeServices === "true" && {
+            populate: {
+              path: "services",
+              options: { limit: Number(servicesLimit), sort: { createdAt: -1 } }
+            }
+          })
+        });
+      }
+      
+      if (includeServicesCount === "true") {
+        query = query.populate("servicesCount");
       }
 
-      const { page, limit, skip } = CategoryController.getPaginationParams(req.query);
-      const { includeUserData = false, includeSubcategories = false } = req.query;
-
-      const query = {
-        isDeleted: true
-      };
-
-      const sort = CategoryController.buildSortOptions(
-        req.query.sortBy as string,
-        req.query.sortOrder as string
-      );
-
-      let categoryQuery = CategoryModel.find(query);
-
-      if (includeSubcategories) {
-        categoryQuery = categoryQuery.populate("subcategories");
+      // NEW: Include services if requested
+      if (includeServices === "true") {
+        if (popularOnly === "true") {
+          query = query.populate({
+            path: "popularServices",
+            options: { limit: Number(servicesLimit) }
+          });
+        } else {
+          query = query.populate({
+            path: "services",
+            options: { 
+              limit: Number(servicesLimit),
+              sort: { createdAt: -1 }
+            }
+          });
+        }
       }
-
+      
       if (includeUserData === "true") {
-        categoryQuery = categoryQuery
+        query = query
           .populate("createdBy", "name email displayName")
           .populate("lastModifiedBy", "name email displayName");
       }
 
-      const [categories, total] = await Promise.all([
-        categoryQuery.sort(sort).skip(skip).limit(limit).lean(),
-        CategoryModel.countDocuments(query),
-      ]);
-
-      const categoriesWithCounts: CategoryWithServices[] = await Promise.all(
-        categories.map(async (category): Promise<CategoryWithServices> => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-          const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-          
-          return {
-            ...category,
-            services: [],
-            servicesCount
-          };
-        })
-      );
-
-      CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithCounts,
-        pagination: CategoryController.buildPaginationResponse(page, limit, total),
-      }, "Deleted categories fetched successfully");
+      const categories = await query.sort({ displayOrder: 1 });
+      CategoryController.sendSuccessResponse(res, { categories });
     } catch (error) {
-      CategoryController.handleError(res, error, "Failed to fetch deleted categories");
+      CategoryController.handleError(res, error, "Failed to fetch parent categories");
     }
   }
 
-  /**
-   * Get deleted category by ID - admin only
-   */
-  static async getDeletedCategoryById(req: Request, res: Response): Promise<void> {
-    try {
-      if (!CategoryController.isAdminUser(req)) {
-        CategoryController.sendBadRequestResponse(res, "Only admin users can access deleted categories");
-        return;
-      }
 
-      const { id } = req.params;
-      const { 
-        includeSubcategories = false, 
-        includeUserData = false,
-        includeServices = false,
-        servicesLimit = 10,
-        popularOnly = false
-      } = req.query;
-
-      if (!CategoryController.validateObjectId(id)) {
-        CategoryController.sendBadRequestResponse(res, "Invalid category ID");
-        return;
-      }
-
-      const query = { _id: id, isDeleted: true };
-      const category = await CategoryModel.findOne(query).lean();
-
-      if (!category) {
-        CategoryController.sendNotFoundResponse(res, "Deleted category not found");
-        return;
-      }
-
-      const categoryData: any = { ...category };
-
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      categoryData.servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-
-      if (includeServices === "true") {
-        const serviceQuery = CategoryController.buildServiceQuery(
-          category._id, 
-          req, 
-          popularOnly === "true"
-        );
-        
-        categoryData.services = await ServiceModel.find(serviceQuery)
-          .limit(Number(servicesLimit))
-          .sort({ createdAt: -1 })
-          .lean();
-      }
-
-      if (includeSubcategories === "true") {
-        const subcategories = await CategoryModel.find({
-          parentCategoryId: category._id,
-          isActive: true,
-          isDeleted: false
-        }).sort({ displayOrder: 1 }).lean();
-
-        const subcategoriesWithServices = await Promise.all(
-          subcategories.map(async (subcat) => {
-            const subcatData: any = { ...subcat };
-            
-            const subcatServiceCountQuery = CategoryController.buildServiceCountQuery(subcat._id, req);
-            subcatData.servicesCount = await ServiceModel.countDocuments(subcatServiceCountQuery);
-
-            if (includeServices === "true") {
-              const subcatServiceQuery = CategoryController.buildServiceQuery(
-                subcat._id, 
-                req, 
-                popularOnly === "true"
-              );
-              
-              subcatData.services = await ServiceModel.find(subcatServiceQuery)
-                .limit(Number(servicesLimit))
-                .sort({ createdAt: -1 })
-                .lean();
-            }
-
-            return subcatData;
-          })
-        );
-
-        categoryData.subcategories = subcategoriesWithServices;
-      }
-
-      if (includeUserData === "true") {
-        await CategoryModel.populate(categoryData, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" }
-        ]);
-      }
-
-      CategoryController.sendSuccessResponse(res, { category: categoryData }, "Deleted category fetched successfully");
-    } catch (error) {
-      CategoryController.handleError(res, error, "Failed to fetch deleted category");
-    }
-  }
-
-  /**
-   * Get parent categories (categories with no parent)
-   */
-  static async getParentCategories(req: Request, res: Response): Promise<void> {
-    try {
-      const {
-        includeSubcategories = false,
-        includeServicesCount = false,
-        includeUserData = false,
-        includeInactive = false,
-        includeServices = false,
-        servicesLimit = 5,
-        popularOnly = false,
-      } = req.query;
-
-      const baseQuery = {
-        parentCategoryId: null,
-        isDeleted: false,
-        ...(includeInactive !== "true" && { isActive: true }),
-      };
-
-      const categories = await CategoryModel.find(baseQuery)
-        .sort({ displayOrder: 1 })
-        .lean();
-
-      const categoriesWithData = await Promise.all(
-        categories.map(async (category) => {
-          const categoryData: any = { ...category };
-
-          if (includeServicesCount === "true") {
-            const serviceCountQuery = CategoryController.buildServiceCountQuery(
-              category._id,
-              req
-            );
-            categoryData.servicesCount = await ServiceModel.countDocuments(
-              serviceCountQuery
-            );
-          }
-
-          if (includeServices === "true") {
-            const serviceQuery = CategoryController.buildServiceQuery(
-              category._id,
-              req,
-              popularOnly === "true"
-            );
-
-            categoryData.services = await ServiceModel.find(serviceQuery)
-              .limit(Number(servicesLimit))
-              .sort({ createdAt: -1 })
-              .lean();
-          }
-
-          if (includeSubcategories === "true") {
-            const subcategories = await CategoryModel.find({
-              parentCategoryId: category._id,
-              isDeleted: false,
-              ...(includeInactive !== "true" && { isActive: true }),
-            })
-              .sort({ displayOrder: 1 })
-              .lean();
-
-            const subcategoriesWithServices = await Promise.all(
-              subcategories.map(async (subcat) => {
-                const subcatData: any = { ...subcat };
-
-                if (includeServices === "true") {
-                  const subcatServiceQuery =
-                    CategoryController.buildServiceQuery(
-                      subcat._id,
-                      req,
-                      popularOnly === "true"
-                    );
-
-                  subcatData.services = await ServiceModel.find(
-                    subcatServiceQuery
-                  )
-                    .limit(Number(servicesLimit))
-                    .sort({ createdAt: -1 })
-                    .lean();
-                }
-
-                if (includeServicesCount === "true") {
-                  const subcatServiceCountQuery =
-                    CategoryController.buildServiceCountQuery(subcat._id, req);
-                  subcatData.servicesCount = await ServiceModel.countDocuments(
-                    subcatServiceCountQuery
-                  );
-                }
-
-                return subcatData;
-              })
-            );
-
-            categoryData.subcategories = subcategoriesWithServices;
-          }
-
-          return categoryData;
-        })
-      );
-
-      if (includeUserData === "true") {
-        await CategoryModel.populate(categoriesWithData, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
-      }
-
-      CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithData,
-      });
-    } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to fetch parent categories"
-      );
-    }
-  }
-
-  /**
-   * Get subcategories for a specific parent category
-   */
   static async getSubcategories(req: Request, res: Response): Promise<void> {
     try {
       const { parentId } = req.params;
       const { includeUserData = false } = req.query;
 
       if (!CategoryController.validateObjectId(parentId)) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Invalid parent category ID"
-        );
+        CategoryController.sendBadRequestResponse(res, "Invalid parent category ID");
         return;
       }
 
-      const subcategories = await CategoryModel.find({
-        parentCategoryId: new Types.ObjectId(parentId),
-        isActive: true,
-        isDeleted: false,
-      })
-        .sort({ displayOrder: 1 })
-        .lean();
-
-      const subcategoriesWithCounts = await Promise.all(
-        subcategories.map(async (subcat) => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(
-            subcat._id,
-            req
-          );
-          const servicesCount = await ServiceModel.countDocuments(
-            serviceCountQuery
-          );
-
-          return {
-            ...subcat,
-            servicesCount,
-          };
-        })
-      );
+      let subcategoriesQuery = CategoryModel.findSubcategories(
+        new Types.ObjectId(parentId)
+      ).populate("servicesCount");
 
       if (includeUserData === "true") {
-        await CategoryModel.populate(subcategoriesWithCounts, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
+        subcategoriesQuery = subcategoriesQuery
+          .populate("createdBy", "name email displayName")
+          .populate("lastModifiedBy", "name email displayName");
       }
 
-      CategoryController.sendSuccessResponse(res, {
-        subcategories: subcategoriesWithCounts,
-      });
+      const subcategories = await subcategoriesQuery;
+      CategoryController.sendSuccessResponse(res, { subcategories });
     } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to fetch subcategories"
-      );
+      CategoryController.handleError(res, error, "Failed to fetch subcategories");
     }
   }
 
-  /**
-   * Get category by ID or slug - shared logic
-   */
+ // Enhanced getCategoryByIdentifier with services support
   private static async getCategoryByIdentifier(
-    req: Request,
-    res: Response,
-    identifier: string,
+    req: Request, 
+    res: Response, 
+    identifier: string, 
     isSlug = false
   ): Promise<void> {
     try {
-      const {
-        includeSubcategories = false,
+      const { 
+        includeSubcategories = false, 
         includeUserData = false,
+        // NEW: Add services options
         includeServices = false,
         servicesLimit = 10,
-        popularOnly = false,
+        popularOnly = false
       } = req.query;
 
       if (!isSlug && !CategoryController.validateObjectId(identifier)) {
@@ -835,150 +373,86 @@ export class CategoryController {
         return;
       }
 
-      const query = isSlug
-        ? { slug: identifier, isDeleted: false }
-        : { _id: identifier, isDeleted: false };
+      const query = isSlug 
+        ? CategoryModel.findBySlug(identifier)
+        : CategoryModel.findById(identifier);
 
-      const category = await CategoryModel.findOne(query).lean();
+      let categoryQuery = query;
+      
+      // Apply population based on query parameters
+      if (includeSubcategories === "true") {
+        categoryQuery = categoryQuery.populate({
+          path: "subcategories",
+          // Optionally include services for subcategories
+          ...(includeServices === "true" && {
+            populate: {
+              path: popularOnly === "true" ? "popularServices" : "services",
+              options: { limit: Number(servicesLimit) }
+            }
+          })
+        });
+      }
 
-      if (!category) {
+      categoryQuery = categoryQuery.populate("servicesCount");
+
+      // NEW: Include services if requested
+      if (includeServices === "true") {
+        if (popularOnly === "true") {
+          categoryQuery = categoryQuery.populate({
+            path: "popularServices",
+            options: { limit: Number(servicesLimit) }
+          });
+        } else {
+          categoryQuery = categoryQuery.populate({
+            path: "services",
+            options: { 
+              limit: Number(servicesLimit),
+              sort: { createdAt: -1 }
+            }
+          });
+        }
+      }
+
+      // For non-slug queries or when explicitly requested, include user data
+      if (!isSlug || includeUserData === "true") {
+        categoryQuery = categoryQuery
+          .populate("createdBy", "name email displayName")
+          .populate("lastModifiedBy", "name email displayName");
+      }
+
+      const category = await categoryQuery;
+
+      if (!category || (!isSlug && category.isDeleted)) {
         CategoryController.sendNotFoundResponse(res);
         return;
       }
 
-      const categoryData: any = { ...category };
-
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      categoryData.servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-=======
-      // Add services count with role-based filtering
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        category._id,
-        req
-      );
-      categoryData.servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
-      if (includeServices === "true") {
-        const serviceQuery = CategoryController.buildServiceQuery(
-          category._id,
-          req,
-          popularOnly === "true"
-        );
-
-        categoryData.services = await ServiceModel.find(serviceQuery)
-          .limit(Number(servicesLimit))
-          .sort({ createdAt: -1 })
-          .lean();
-      }
-
-      if (includeSubcategories === "true") {
-        const subcategories = await CategoryModel.find({
-          parentCategoryId: category._id,
-          isActive: true,
-          isDeleted: false,
-        })
-          .sort({ displayOrder: 1 })
-          .lean();
-
-        const subcategoriesWithServices = await Promise.all(
-          subcategories.map(async (subcat) => {
-            const subcatData: any = { ...subcat };
-
-            const subcatServiceCountQuery =
-              CategoryController.buildServiceCountQuery(subcat._id, req);
-            subcatData.servicesCount = await ServiceModel.countDocuments(
-              subcatServiceCountQuery
-            );
-
-            if (includeServices === "true") {
-              const subcatServiceQuery = CategoryController.buildServiceQuery(
-                subcat._id,
-                req,
-                popularOnly === "true"
-              );
-
-              subcatData.services = await ServiceModel.find(subcatServiceQuery)
-                .limit(Number(servicesLimit))
-                .sort({ createdAt: -1 })
-                .lean();
-            }
-
-            return subcatData;
-          })
-        );
-
-        categoryData.subcategories = subcategoriesWithServices;
-      }
-
-      if (!isSlug || includeUserData === "true") {
-        await CategoryModel.populate(categoryData, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
-      }
-
-      CategoryController.sendSuccessResponse(res, { category: categoryData });
+      CategoryController.sendSuccessResponse(res, { category });
     } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        `Failed to fetch category${isSlug ? " by slug" : ""}`
-      );
+      CategoryController.handleError(res, error, `Failed to fetch category${isSlug ? ' by slug' : ''}`);
     }
   }
 
-  /**
-   * Get category by slug
-   */
+
   static async getCategoryBySlug(req: Request, res: Response): Promise<void> {
-    return CategoryController.getCategoryByIdentifier(
-      req,
-      res,
-      req.params.slug,
-      true
-    );
-  }
+      return CategoryController.getCategoryByIdentifier(req, res, req.params.slug, true);
+    }
 
-  /**
-   * Get category by ID
-   */
   static async getCategoryById(req: Request, res: Response): Promise<void> {
-    return CategoryController.getCategoryByIdentifier(
-      req,
-      res,
-      req.params.id,
-      false
-    );
+    return CategoryController.getCategoryByIdentifier(req, res, req.params.id, false);
   }
 
-  // ==================== CRUD OPERATIONS ====================
 
-  /**
-   * Create a new category
-   */
-  static async createCategory(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async createCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const {
-        name,
-        description,
-        image,
-        tags,
-        parentCategoryId,
-        displayOrder,
-        metaDescription,
+        name, description, image, tags, parentCategoryId,
+        displayOrder, metaDescription
       } = req.body;
 
+      // Validate parent category if provided
       if (parentCategoryId) {
-        const validationError = await CategoryController.validateParentCategory(
-          parentCategoryId
-        );
+        const validationError = await CategoryController.validateParentCategory(parentCategoryId);
         if (validationError) {
           CategoryController.sendBadRequestResponse(res, validationError);
           return;
@@ -987,14 +461,8 @@ export class CategoryController {
 
       const userId = CategoryController.getUserId(req);
       const categoryData = {
-        name,
-        description,
-        image,
-        tags,
-        metaDescription,
-        parentCategoryId: parentCategoryId
-          ? new Types.ObjectId(parentCategoryId)
-          : null,
+        name, description, image, tags, metaDescription,
+        parentCategoryId: parentCategoryId ? new Types.ObjectId(parentCategoryId) : null,
         displayOrder: displayOrder || 0,
         createdBy: userId,
         lastModifiedBy: userId,
@@ -1004,48 +472,24 @@ export class CategoryController {
       const category = new CategoryModel(categoryData);
       await category.save();
 
+      // Populate user data in the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" },
+        { path: "servicesCount" }
       ]);
-
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-      
-=======
-      // Add services count with role-based filtering
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        category._id,
-        req
-      );
-      const servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
-
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-      const categoryWithCount = {
-        ...category.toObject(),
-        servicesCount,
-      };
 
       res.status(201).json({
         success: true,
         message: "Category created successfully",
-        data: { category: categoryWithCount },
+        data: { category },
       });
     } catch (error) {
       CategoryController.handleError(res, error, "Failed to create category");
     }
   }
 
-  /**
-   * Update an existing category
-   */
-  static async updateCategory(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async updateCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -1056,69 +500,33 @@ export class CategoryController {
         return;
       }
 
+      // Validate parent category if being updated
       if (updateData.parentCategoryId) {
-        const validationError = await CategoryController.validateParentCategory(
-          updateData.parentCategoryId,
-          id
-        );
+        const validationError = await CategoryController.validateParentCategory(updateData.parentCategoryId, id);
         if (validationError) {
           CategoryController.sendBadRequestResponse(res, validationError);
           return;
         }
-        updateData.parentCategoryId = new Types.ObjectId(
-          updateData.parentCategoryId
-        );
+        updateData.parentCategoryId = new Types.ObjectId(updateData.parentCategoryId);
       }
 
       updateData.lastModifiedBy = CategoryController.getUserId(req);
 
       const updatedCategory = await CategoryModel.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      ).lean();
+        id, updateData, { new: true, runValidators: true }
+      )
+        .populate("subcategories")
+        .populate("servicesCount")
+        .populate("createdBy", "name email displayName")
+        .populate("lastModifiedBy", "name email displayName");
 
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(updatedCategory!._id, req);
-      const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-=======
-      // Add services count and populate manually
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        updatedCategory!._id,
-        req
-      );
-      const servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
-      const categoryWithData = {
-        ...updatedCategory,
-        servicesCount,
-      };
-
-      await CategoryModel.populate(categoryWithData, [
-        { path: "createdBy", select: "name email displayName" },
-        { path: "lastModifiedBy", select: "name email displayName" },
-      ]);
-
-      CategoryController.sendSuccessResponse(
-        res,
-        { category: categoryWithData },
-        "Category updated successfully"
-      );
+      CategoryController.sendSuccessResponse(res, { category: updatedCategory }, "Category updated successfully");
     } catch (error) {
       CategoryController.handleError(res, error, "Failed to update category");
     }
   }
 
-  /**
-   * Soft delete a category
-   */
-  static async deleteCategory(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async deleteCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -1128,37 +536,25 @@ export class CategoryController {
         return;
       }
 
+      // Check if category has active subcategories
       const subcategoriesCount = await CategoryModel.countDocuments({
         parentCategoryId: id,
         isDeleted: false,
       });
 
       if (subcategoriesCount > 0) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Cannot delete category with active subcategories"
-        );
+        CategoryController.sendBadRequestResponse(res, "Cannot delete category with active subcategories");
         return;
       }
 
       await category.softDelete(CategoryController.getUserId(req));
-      CategoryController.sendSuccessResponse(
-        res,
-        null,
-        "Category deleted successfully"
-      );
+      CategoryController.sendSuccessResponse(res, null, "Category deleted successfully");
     } catch (error) {
       CategoryController.handleError(res, error, "Failed to delete category");
     }
   }
 
-  /**
-   * Restore a soft-deleted category
-   */
-  static async restoreCategory(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async restoreCategory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -1169,10 +565,7 @@ export class CategoryController {
       }
 
       if (!category.isDeleted) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Category is not deleted"
-        );
+        CategoryController.sendBadRequestResponse(res, "Category is not deleted");
         return;
       }
 
@@ -1180,47 +573,20 @@ export class CategoryController {
       category.lastModifiedBy = CategoryController.getUserId(req);
       await category.save();
 
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-=======
-      // Add services count with role-based filtering
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        category._id,
-        req
-      );
-      const servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
+      // Populate user data for the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" },
+        { path: "servicesCount" }
       ]);
 
-      const categoryWithCount = {
-        ...category.toObject(),
-        servicesCount,
-      };
-
-      CategoryController.sendSuccessResponse(
-        res,
-        { category: categoryWithCount },
-        "Category restored successfully"
-      );
+      CategoryController.sendSuccessResponse(res, { category }, "Category restored successfully");
     } catch (error) {
       CategoryController.handleError(res, error, "Failed to restore category");
     }
   }
 
-  /**
-   * Toggle category active status
-   */
-  static async toggleCategoryStatus(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async toggleCategoryStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -1234,61 +600,28 @@ export class CategoryController {
       category.lastModifiedBy = CategoryController.getUserId(req);
       await category.save();
 
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-=======
-      // Add services count with role-based filtering
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        category._id,
-        req
-      );
-      const servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
+      // Populate user data for the response
       await category.populate([
         { path: "createdBy", select: "name email displayName" },
         { path: "lastModifiedBy", select: "name email displayName" },
+        { path: "servicesCount" }
       ]);
 
-      const categoryWithCount = {
-        ...category.toObject(),
-        servicesCount,
-      };
-
-      CategoryController.sendSuccessResponse(
-        res,
-        { category: categoryWithCount },
-        `Category ${
-          category.isActive ? "activated" : "deactivated"
-        } successfully`
+      CategoryController.sendSuccessResponse(res, 
+        { category }, 
+        `Category ${category.isActive ? "activated" : "deactivated"} successfully`
       );
     } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to toggle category status"
-      );
+      CategoryController.handleError(res, error, "Failed to toggle category status");
     }
   }
 
-  /**
-   * Update display order for multiple categories
-   */
-  static async updateDisplayOrder(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
+  static async updateDisplayOrder(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { categories } = req.body;
 
       if (!Array.isArray(categories)) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Categories should be an array"
-        );
+        CategoryController.sendBadRequestResponse(res, "Categories should be an array");
         return;
       }
 
@@ -1297,64 +630,39 @@ export class CategoryController {
         if (!CategoryController.validateObjectId(id)) {
           throw new Error(`Invalid category ID: ${id}`);
         }
-        return CategoryModel.findByIdAndUpdate(
-          id,
-          {
-            displayOrder,
-            lastModifiedBy: userId,
-          },
-          { new: true }
-        );
+        return CategoryModel.findByIdAndUpdate(id, {
+          displayOrder,
+          lastModifiedBy: userId,
+        }, { new: true });
       });
 
       const updatedCategories = await Promise.all(updatePromises);
-<<<<<<< HEAD
       
-=======
-
-      // Populate user data for updated categories
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
+      // Optionally populate user data for updated categories
       const populatedCategories = await Promise.all(
-        updatedCategories.map((category) =>
+        updatedCategories.map(category => 
           category?.populate([
             { path: "createdBy", select: "name email displayName" },
-            { path: "lastModifiedBy", select: "name email displayName" },
+            { path: "lastModifiedBy", select: "name email displayName" }
           ])
         )
       );
 
-      CategoryController.sendSuccessResponse(
-        res,
-        { categories: populatedCategories },
+      CategoryController.sendSuccessResponse(res, 
+        { categories: populatedCategories }, 
         "Display order updated successfully"
       );
     } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to update display order"
-      );
+      CategoryController.handleError(res, error, "Failed to update display order");
     }
   }
 
-  /**
-   * Search categories by text
-   */
   static async searchCategories(req: Request, res: Response): Promise<void> {
     try {
-      const {
-        q,
-        limit = 20,
-        includeInactive = false,
-        parentId,
-        includeUserData = false,
-      } = req.query;
+      const { q, limit = 20, includeInactive = false, parentId, includeUserData = false } = req.query;
 
       if (!q || typeof q !== "string") {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Search query is required"
-        );
+        CategoryController.sendBadRequestResponse(res, "Search query is required");
         return;
       }
 
@@ -1367,343 +675,28 @@ export class CategoryController {
 
       if (parentId && parentId !== "null") {
         if (!CategoryController.validateObjectId(parentId as string)) {
-          CategoryController.sendBadRequestResponse(
-            res,
-            "Invalid parent category ID"
-          );
+          CategoryController.sendBadRequestResponse(res, "Invalid parent category ID");
           return;
         }
         query.parentCategoryId = new Types.ObjectId(parentId as string);
       }
 
-      const categories = await CategoryModel.find(query)
-        .select(
-          "name description slug image displayOrder isActive parentCategoryId"
-        )
+      let searchQuery = CategoryModel.find(query)
+        .select("name description slug image displayOrder isActive parentCategoryId")
+        .populate("servicesCount")
         .limit(Number(limit))
-        .sort({ score: { $meta: "textScore" } })
-        .lean();
-
-      const categoriesWithCounts = await Promise.all(
-        categories.map(async (category) => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(
-            category._id,
-            req
-          );
-          const servicesCount = await ServiceModel.countDocuments(
-            serviceCountQuery
-          );
-
-          return {
-            ...category,
-            servicesCount,
-          };
-        })
-      );
+        .sort({ score: { $meta: "textScore" } });
 
       if (includeUserData === "true") {
-        await CategoryModel.populate(categoriesWithCounts, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
+        searchQuery = searchQuery
+          .populate("createdBy", "name email displayName")
+          .populate("lastModifiedBy", "name email displayName");
       }
 
-      CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithCounts,
-      });
+      const categories = await searchQuery;
+      CategoryController.sendSuccessResponse(res, { categories });
     } catch (error) {
       CategoryController.handleError(res, error, "Failed to search categories");
-    }
-  }
-
-  /**
-   * Moderate a single category
-   */
-  static async moderateCategory(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { moderationStatus, moderationNotes } = req.body;
-
-      if (!Object.values(ModerationStatus).includes(moderationStatus)) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Invalid moderation status"
-        );
-        return;
-      }
-
-      const category = await CategoryController.findCategoryById(id);
-      if (!category) {
-        CategoryController.sendNotFoundResponse(res);
-        return;
-      }
-
-      category.moderationStatus = moderationStatus;
-      category.lastModifiedBy = CategoryController.getUserId(req);
-<<<<<<< HEAD
-      
-=======
-
-      // Add moderation notes if provided (you might need to add this field to your schema)
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-      if (moderationNotes) {
-        category.moderationNotes = moderationNotes;
-      }
-
-      if (moderationStatus === ModerationStatus.APPROVED) {
-        category.isActive = true;
-      } else if (moderationStatus === ModerationStatus.REJECTED) {
-        category.isActive = false;
-      }
-
-      await category.save();
-
-<<<<<<< HEAD
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(category._id, req);
-      const servicesCount = await ServiceModel.countDocuments(serviceCountQuery);
-=======
-      // Add services count with role-based filtering
-      const serviceCountQuery = CategoryController.buildServiceCountQuery(
-        category._id,
-        req
-      );
-      const servicesCount = await ServiceModel.countDocuments(
-        serviceCountQuery
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
-      await category.populate([
-        { path: "createdBy", select: "name email displayName" },
-        { path: "lastModifiedBy", select: "name email displayName" },
-      ]);
-
-      const categoryWithCount = {
-        ...category.toObject(),
-        servicesCount,
-      };
-
-      CategoryController.sendSuccessResponse(
-        res,
-        { category: categoryWithCount },
-        `Category ${moderationStatus.toLowerCase()} successfully`
-      );
-    } catch (error) {
-      CategoryController.handleError(res, error, "Failed to moderate category");
-    }
-  }
-
-  /**
-   * Bulk moderate multiple categories
-   */
-  static async bulkModerateCategories(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
-    try {
-      const { categoryIds, moderationStatus, moderationNotes } = req.body;
-
-      if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Category IDs array is required and cannot be empty"
-        );
-        return;
-      }
-
-      if (!Object.values(ModerationStatus).includes(moderationStatus)) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          "Invalid moderation status"
-        );
-        return;
-      }
-
-<<<<<<< HEAD
-      const invalidIds = categoryIds.filter(id => !CategoryController.validateObjectId(id));
-=======
-      // Validate all category IDs
-      const invalidIds = categoryIds.filter(
-        (id) => !CategoryController.validateObjectId(id)
-      );
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-      if (invalidIds.length > 0) {
-        CategoryController.sendBadRequestResponse(
-          res,
-          `Invalid category IDs: ${invalidIds.join(", ")}`
-        );
-        return;
-      }
-
-      const categories = await CategoryModel.find({
-        _id: { $in: categoryIds },
-        isDeleted: false,
-      });
-
-      if (categories.length === 0) {
-        CategoryController.sendNotFoundResponse(
-          res,
-          "No valid categories found"
-        );
-        return;
-      }
-
-<<<<<<< HEAD
-      const foundIds = categories.map(cat => cat._id.toString());
-      const notFoundIds = categoryIds.filter(id => !foundIds.includes(id));
-=======
-      // Check if any categories were not found
-      const foundIds = categories.map((cat) => cat._id.toString());
-      const notFoundIds = categoryIds.filter((id) => !foundIds.includes(id));
->>>>>>> 28baaed94d025492a96317bbd0af68691587028f
-
-      const userId = CategoryController.getUserId(req);
-      const updateData: any = {
-        moderationStatus,
-        lastModifiedBy: userId,
-        moderatedBy: userId,
-        moderatedAt: new Date(),
-      };
-
-      if (moderationNotes) {
-        updateData.moderationNotes = moderationNotes;
-      }
-
-      if (moderationStatus === ModerationStatus.APPROVED) {
-        updateData.isActive = true;
-      } else if (moderationStatus === ModerationStatus.REJECTED) {
-        updateData.isActive = false;
-      }
-
-      const updateResult = await CategoryModel.updateMany(
-        { _id: { $in: foundIds } },
-        updateData
-      );
-
-      const updatedCategories = await CategoryModel.find({
-        _id: { $in: foundIds },
-      }).lean();
-
-      const categoriesWithCounts = await Promise.all(
-        updatedCategories.map(async (category) => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(
-            category._id,
-            req
-          );
-          const servicesCount = await ServiceModel.countDocuments(
-            serviceCountQuery
-          );
-
-          return {
-            ...category,
-            servicesCount,
-          };
-        })
-      );
-
-      await CategoryModel.populate(categoriesWithCounts, [
-        { path: "createdBy", select: "name email displayName" },
-        { path: "lastModifiedBy", select: "name email displayName" },
-      ]);
-
-      const response: any = {
-        moderated: categoriesWithCounts.length,
-        categories: categoriesWithCounts,
-      };
-
-      if (notFoundIds.length > 0) {
-        response.notFound = notFoundIds;
-        response.message = `${
-          categoriesWithCounts.length
-        } categories ${moderationStatus.toLowerCase()} successfully. ${
-          notFoundIds.length
-        } categories not found.`;
-      }
-
-      CategoryController.sendSuccessResponse(
-        res,
-        response,
-        response.message ||
-          `${
-            categoriesWithCounts.length
-          } categories ${moderationStatus.toLowerCase()} successfully`
-      );
-    } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to bulk moderate categories"
-      );
-    }
-  }
-
-  /**
-   * Get categories pending moderation
-   */
-  static async getPendingCategories(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    try {
-      const { page, limit, skip } = CategoryController.getPaginationParams(
-        req.query
-      );
-      const { includeUserData = false } = req.query;
-
-      const query = {
-        moderationStatus: ModerationStatus.PENDING,
-        isDeleted: false,
-      };
-
-      const [categories, total] = await Promise.all([
-        CategoryModel.find(query)
-          .sort({ createdAt: 1 })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-        CategoryModel.countDocuments(query),
-      ]);
-
-      const categoriesWithCounts = await Promise.all(
-        categories.map(async (category) => {
-          const serviceCountQuery = CategoryController.buildServiceCountQuery(
-            category._id,
-            req
-          );
-          const servicesCount = await ServiceModel.countDocuments(
-            serviceCountQuery
-          );
-
-          return {
-            ...category,
-            servicesCount,
-          };
-        })
-      );
-
-      if (includeUserData === "true") {
-        await CategoryModel.populate(categoriesWithCounts, [
-          { path: "createdBy", select: "name email displayName" },
-          { path: "lastModifiedBy", select: "name email displayName" },
-        ]);
-      }
-
-      CategoryController.sendSuccessResponse(res, {
-        categories: categoriesWithCounts,
-        pagination: CategoryController.buildPaginationResponse(
-          page,
-          limit,
-          total
-        ),
-      });
-    } catch (error) {
-      CategoryController.handleError(
-        res,
-        error,
-        "Failed to fetch pending categories"
-      );
     }
   }
 }
