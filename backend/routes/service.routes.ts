@@ -1,6 +1,6 @@
 // routes/service.routes.ts
 import express, { RequestHandler } from "express";
-import { authenticateToken, requireAdmin } from "../middleware/auth.middleware";
+import { authenticateToken, optionalAuth, requireAdmin } from "../middleware/auth.middleware";
 import { ServiceController } from "../controllers/service.controller";
 
 const router = express.Router();
@@ -79,7 +79,7 @@ router.patch(
 // ===================================================================
 
 // Get all services with filtering and pagination
-router.get("/", serviceController.getAllServices.bind(serviceController) as RequestHandler);
+router.get("/", optionalAuth, serviceController.getAllServices.bind(serviceController) as RequestHandler);
 
 // Get popular services
 router.get("/popular", serviceController.getPopularServices.bind(serviceController) as RequestHandler);

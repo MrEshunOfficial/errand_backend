@@ -4,7 +4,6 @@ import { Types } from "mongoose";
 import { ServiceModel } from "../models/service.model";
 import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils";
 import { ServiceStatus } from "../types";
-
 export class ServiceController {
   private handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
     console.error(`${message}:`, error);
@@ -93,8 +92,13 @@ export class ServiceController {
     return null;
   }
 
-  private buildServiceFilter(query: any, baseFilter: any = {}) {
-    const filter = { ...baseFilter, isDeleted: false };
+  private buildServiceFilter(query: any, baseFilter: any = {}, isAdmin: boolean = false) {
+    // Only include isDeleted: false if user is not admin or admin explicitly wants non-deleted services
+    const filter = { 
+      ...baseFilter, 
+      ...((!isAdmin || query.includeDeleted === "false") && { isDeleted: false })
+    };
+    
     const {
       category, status, isPopular, tags, minPrice, maxPrice, search,
       priceBasedOnServiceType
@@ -142,6 +146,7 @@ export class ServiceController {
       else if (field === "submittedBy") queryBuilder = queryBuilder.populate("submittedBy", "name email");
       else if (field === "approvedBy") queryBuilder = queryBuilder.populate("approvedBy", "name email");
       else if (field === "rejectedBy") queryBuilder = queryBuilder.populate("rejectedBy", "name email");
+      else if (field === "deletedBy") queryBuilder = queryBuilder.populate("deletedBy", "name email");
     });
 
     const [data, total] = await Promise.all([
@@ -156,14 +161,48 @@ export class ServiceController {
     };
   }
 
-  async getAllServices(req: Request, res: Response): Promise<void> {
+  async getAllServices(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const filter = this.buildServiceFilter(req.query);
-      const result = await this.paginatedQuery(req.query, filter);
-      res.status(200).json({
+      // Check if user is admin
+      const isAdmin = req.user?.isAdmin || req.user?.isSuperAdmin || false;
+      
+      const filter = this.buildServiceFilter(req.query, {}, isAdmin);
+      
+      // Add additional populate fields for admins to see deletion info
+      const additionalPopulate = isAdmin ? ["deletedBy"] : [];
+      
+      const result = await this.paginatedQuery(req.query, filter, ["category", "submittedBy"], additionalPopulate);
+      
+      // Add admin-specific metadata if user is admin
+      const response: any = {
         success: true,
         ...result
-      });
+      };
+
+      if (isAdmin) {
+        // Get deletion status counts for admin
+        const deletionCounts = await ServiceModel.aggregate([
+          { 
+            $group: { 
+              _id: "$isDeleted", 
+              count: { $sum: 1 } 
+            } 
+          },
+        ]);
+
+        const deletionSummary = deletionCounts.reduce((acc, item) => {
+          acc[item._id ? 'deleted' : 'active'] = item.count;
+          return acc;
+        }, {} as Record<string, number>);
+
+        response.adminMetadata = {
+          deletionCounts: deletionSummary,
+          totalServices: deletionSummary.deleted + deletionSummary.active || 0,
+          includesDeleted: req.query.includeDeleted !== "false"
+        };
+      }
+
+      res.status(200).json(response);
     } catch (error) {
       this.handleError(res, error, "Error fetching services");
     }
@@ -217,11 +256,21 @@ export class ServiceController {
         return;
       }
 
-      const service = await ServiceModel.findOne({ _id: id, isDeleted: false })
+      // Check if user is admin to allow viewing deleted services
+      const isAdmin = (req as AuthenticatedRequest).user?.isAdmin || (req as AuthenticatedRequest).user?.isSuperAdmin || false;
+      const filter: any = { _id: id };
+      
+      // Only add isDeleted filter if user is not admin
+      if (!isAdmin) {
+        filter.isDeleted = false;
+      }
+
+      const service = await ServiceModel.findOne(filter)
         .populate("category", "name slug description")
         .populate("submittedBy", "name email")
         .populate("approvedBy", "name email")
-        .populate("rejectedBy", "name email");
+        .populate("rejectedBy", "name email")
+        .populate("deletedBy", "name email");
 
       if (!service) {
         res.status(404).json({ success: false, message: "Service not found" });
