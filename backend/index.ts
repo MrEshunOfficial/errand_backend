@@ -14,7 +14,6 @@ import authRoutes from "./routes/auth.routes.js";
 import warningRoutes from "./routes/warning.routes.js";
 import reviewRoutes from "./routes/reviews.routes.js";
 import idDetailsRoutes from "./routes/idDetails.routes.js";
-import categoryImageRoutes from "./routes/categoryImages.routes.ts";
 
 dotenv.config();
 
@@ -35,17 +34,20 @@ app.use(
 );
 
 // For JSON (e.g., base64 images)
-app.use(express.json({ 
-  limit: '5mb'
-}));
+app.use(
+  express.json({
+    limit: "5mb",
+  })
+);
 
 // For URL-encoded form data
-app.use(express.urlencoded({ 
-  limit: '5mb',
-  parameterLimit: 50000, // valid here ✅
-  extended: true
-}));
-
+app.use(
+  express.urlencoded({
+    limit: "5mb",
+    parameterLimit: 50000, // valid here ✅
+    extended: true,
+  })
+);
 
 // Cookie parser middleware
 app.use(cookieParser());
@@ -61,7 +63,6 @@ app.use("/api/services", serviceRoutes);
 app.use("/api/warnings", warningRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/reports", reportRoutes);
-app.use('/api/categories', categoryImageRoutes);
 
 // Static file serving
 app.use("/uploads", express.static("uploads"));
@@ -75,29 +76,30 @@ app.use(
     next: express.NextFunction
   ) => {
     console.error(err.stack);
-    
+
     // Handle payload too large errors specifically
-    if (err.type === 'entity.too.large' || err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({ 
+    if (err.type === "entity.too.large" || err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
         success: false,
-        message: "Request payload too large. Please use a smaller image (max 10MB).",
-        error: "PAYLOAD_TOO_LARGE"
+        message:
+          "Request payload too large. Please use a smaller image (max 10MB).",
+        error: "PAYLOAD_TOO_LARGE",
       });
     }
-    
+
     // Handle JSON parsing errors
-    if (err.type === 'entity.parse.failed') {
+    if (err.type === "entity.parse.failed") {
       return res.status(400).json({
         success: false,
         message: "Invalid JSON data",
-        error: "INVALID_JSON"
+        error: "INVALID_JSON",
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
       message: "Something went wrong!",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 );
