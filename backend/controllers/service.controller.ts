@@ -283,21 +283,36 @@ export class ServiceController {
     }
   }
 
-  async getServiceBySlug(req: Request, res: Response): Promise<void> {
-    try {
-      const { slug } = req.params;
-      const service = await ServiceModel.findBySlug(slug);
+ async getServiceBySlug(req: Request, res: Response): Promise<void> {
+  try {
+    const { slug } = req.params;
 
-      if (!service) {
-        res.status(404).json({ success: false, message: "Service not found" });
-        return;
-      }
-
-      res.status(200).json({ success: true, data: service });
-    } catch (error) {
-      this.handleError(res, error, "Error fetching service by slug");
+    // Check if user is admin to allow viewing deleted services
+    const isAdmin = (req as AuthenticatedRequest).user?.isAdmin || (req as AuthenticatedRequest).user?.isSuperAdmin || false;
+    
+    // Build filter similar to getServiceById
+    const filter: any = { slug };
+    if (!isAdmin) {
+      filter.isDeleted = false;
     }
+
+    const service = await ServiceModel.findOne(filter)
+      .populate("category", "name slug description")
+      .populate("submittedBy", "name email")
+      .populate("approvedBy", "name email")
+      .populate("rejectedBy", "name email")
+      .populate("deletedBy", "name email");
+
+    if (!service) {
+      res.status(404).json({ success: false, message: "Service not found" });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: service });
+  } catch (error) {
+    this.handleError(res, error, "Error fetching service by slug");
   }
+}
 
   async createService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
