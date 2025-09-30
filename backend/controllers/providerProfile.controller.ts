@@ -181,9 +181,18 @@ export class ProviderProfileController {
     } catch (error: any) {
       console.error("Error creating provider profile:", error);
       
-      const errorHandlers = {
+      const errorHandlers: Record<string, () => Response<ProviderProfileResponse>> = {
         ValidationError: () => res.status(400).json({ message: "Validation error", error: error.message }),
-        MongoServerError: () => error.code === 11000 && res.status(409).json({ message: "Provider profile already exists", error: "Duplicate profile ID" }),
+       MongoServerError: () =>
+      error.code === 11000
+        ? res.status(409).json({
+            message: "Provider profile already exists",
+            error: "Duplicate profile ID",
+          })
+        : res.status(500).json({
+            message: "Unknown Mongo server error",
+        error: "MONGO_SERVER_ERROR",
+      }),
         CastError: () => res.status(400).json({ message: "Invalid ID format", error: "Invalid ObjectId format" }),
       };
 
@@ -556,85 +565,262 @@ export class ProviderProfileController {
     }
   }
 
-  // Service offering management - consolidated logic
-  private static async manageServiceOffering(
-    providerProfile: any,
-    serviceId: string,
-    action: 'add' | 'remove',
-    res: Response
-  ) {
-    if (!validateObjectId(serviceId)) {
-      res.status(400).json({ success: false, message: "Invalid service ID provided" });
-      return false;
-    }
+  // Service offering management
+private static async manageServiceOffering(
+  providerProfile: any,
+  serviceId: string,
+  action: 'add' | 'remove',
+  res: Response
+): Promise<boolean> {
+  // Validate service ID format
+  if (!validateObjectId(serviceId)) {
+    res.status(400).json({ 
+      success: false, 
+      message: "Invalid service ID format",
+      error: "INVALID_SERVICE_ID"
+    });
+    return false;
+  }
 
-    const serviceObjectId = new Types.ObjectId(serviceId);
-    
+  const serviceObjectId = new Types.ObjectId(serviceId);
+  
+  // IMPORTANT: Verify service exists in database
+   const { ServiceModel } = await import('../models/service.model.js');
+  const serviceExists = await ServiceModel.findOne({
+    _id: serviceObjectId,
+    isDeleted: false,
+    status: 'approved'
+  });
+
+  if (!serviceExists) {
+    res.status(404).json({ 
+      success: false, 
+      message: "Service not found or not approved",
+      error: "SERVICE_NOT_FOUND"
+    });
+    return false;
+  }
+
+  try {
     if (action === 'add') {
-      if (!providerProfile.serviceOfferings) providerProfile.serviceOfferings = [];
-      if (!providerProfile.serviceOfferings.some((s: any) => s.equals(serviceObjectId))) {
-        providerProfile.serviceOfferings.push(serviceObjectId);
-        await providerProfile.save();
+      // Initialize array if needed
+      if (!providerProfile.serviceOfferings) {
+        providerProfile.serviceOfferings = [];
       }
+      
+      // Check if already exists
+      const alreadyExists = providerProfile.serviceOfferings.some(
+        (s: any) => s.toString() === serviceObjectId.toString()
+      );
+      
+      if (alreadyExists) {
+        res.status(409).json({
+          success: false,
+          message: "Service already added to profile",
+          error: "SERVICE_ALREADY_EXISTS"
+        });
+        return false;
+      }
+      
+      providerProfile.serviceOfferings.push(serviceObjectId);
+      await providerProfile.save();
+      
     } else {
+      // Remove service
+      const initialLength = providerProfile.serviceOfferings?.length || 0;
       await providerProfile.removeServiceOffering(serviceObjectId);
+      
+      // Check if service was actually removed
+      if (providerProfile.serviceOfferings?.length === initialLength) {
+        res.status(404).json({
+          success: false,
+          message: "Service not found in provider's offerings",
+          error: "SERVICE_NOT_IN_PROFILE"
+        });
+        return false;
+      }
     }
 
-    this.sendSuccess(res, `Service offering ${action === 'add' ? 'added' : 'removed'} successfully`);
+    ProviderProfileController.sendSuccess(
+      res, 
+      `Service offering ${action === 'add' ? 'added' : 'removed'} successfully`,
+      { serviceOfferings: providerProfile.serviceOfferings }
+    );
     return true;
+    
+  } catch (error: any) {
+    console.error(`Error ${action}ing service offering:`, error);
+    res.status(500).json({
+      success: false,
+      message: `Failed to ${action} service offering`,
+      error: error.message
+    });
+    return false;
   }
+}
 
-  static async addMyServiceOffering(req: AuthenticatedRequest & Request<{}, ApiResponse, { serviceId: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
-    try {
-      const providerProfile = await this.authenticateAndGetProfile(req, res);
-      if (!providerProfile) return;
-      await this.manageServiceOffering(providerProfile, req.body.serviceId, 'add', res);
-    } catch (error) {
-      handleError(res, error, "Failed to add service offering");
+ // Token-based methods - FIXED
+static async addMyServiceOffering(
+  req: AuthenticatedRequest & Request<{}, ApiResponse, { serviceId: string }>,
+  res: Response<ApiResponse>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    // Validate request body
+    if (!req.body.serviceId) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Service ID is required in request body",
+        error: "MISSING_SERVICE_ID"
+      });
+      return;
     }
-  }
 
-  static async removeMyServiceOffering(req: AuthenticatedRequest & Request<{}, ApiResponse, { serviceId: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
-    try {
-      const providerProfile = await this.authenticateAndGetProfile(req, res);
-      if (!providerProfile) return;
-      await this.manageServiceOffering(providerProfile, req.body.serviceId, 'remove', res);
-    } catch (error) {
-      handleError(res, error, "Failed to remove service offering");
+    const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
+    if (!providerProfile) return;
+    
+    const success = await ProviderProfileController.manageServiceOffering(
+      providerProfile, 
+      req.body.serviceId, 
+      'add', 
+      res
+    );
+    
+    // If manageServiceOffering returned false, response already sent
+    if (!success) return;
+    
+  } catch (error) {
+    handleError(res, error, "Failed to add service offering");
+  }
+}
+
+static async removeMyServiceOffering(
+  req: AuthenticatedRequest & Request<{ serviceId: string }, ApiResponse>,
+  res: Response<ApiResponse>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { serviceId } = req.params;
+    
+    // Validate service ID from params
+    if (!serviceId) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Service ID is required in URL params",
+        error: "MISSING_SERVICE_ID"
+      });
+      return;
     }
+
+    const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
+    if (!providerProfile) return;
+    
+    const success = await ProviderProfileController.manageServiceOffering(
+      providerProfile, 
+      serviceId, 
+      'remove', 
+      res
+    );
+    
+    if (!success) return;
+    
+  } catch (error) {
+    handleError(res, error, "Failed to remove service offering");
   }
+}
 
-  static async addServiceOffering(req: Request<{ id: string }, ApiResponse, { serviceId: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
-    try {
-      const { id } = req.params;
-      if (!validateObjectId(id)) {
-        res.status(400).json({ success: false, message: "Invalid ID provided" });
-        return;
-      }
 
-      const providerProfile = await this.getProviderProfile({ _id: new Types.ObjectId(id) }, res);
-      if (!providerProfile) return;
-      await this.manageServiceOffering(providerProfile, req.body.serviceId, 'add', res);
-    } catch (error) {
-      handleError(res, error, "Failed to add service offering");
+// Admin methods
+static async addServiceOffering(
+  req: Request<{ id: string }, ApiResponse, { serviceId: string }>,
+  res: Response<ApiResponse>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    
+    if (!validateObjectId(id)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid provider profile ID",
+        error: "INVALID_PROVIDER_ID"
+      });
+      return;
     }
-  }
 
-  static async removeServiceOffering(req: Request<{ id: string; serviceId: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
-    try {
-      const { id, serviceId } = req.params;
-      if (!validateObjectId(id)) {
-        res.status(400).json({ success: false, message: "Invalid ID provided" });
-        return;
-      }
-
-      const providerProfile = await this.getProviderProfile({ _id: new Types.ObjectId(id) }, res);
-      if (!providerProfile) return;
-      await this.manageServiceOffering(providerProfile, serviceId, 'remove', res);
-    } catch (error) {
-      handleError(res, error, "Failed to remove service offering");
+    if (!req.body.serviceId) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Service ID is required in request body",
+        error: "MISSING_SERVICE_ID"
+      });
+      return;
     }
+
+    const providerProfile = await ProviderProfileController.getProviderProfile(
+      { _id: new Types.ObjectId(id) }, 
+      res
+    );
+    if (!providerProfile) return;
+    
+    const success = await ProviderProfileController.manageServiceOffering(
+      providerProfile, 
+      req.body.serviceId, 
+      'add', 
+      res
+    );
+    
+    if (!success) return;
+    
+  } catch (error) {
+    handleError(res, error, "Failed to add service offering");
   }
+}
+static async removeServiceOffering(
+  req: Request<{ id: string; serviceId: string }>,
+  res: Response<ApiResponse>,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id, serviceId } = req.params;
+    
+    if (!validateObjectId(id)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid provider profile ID",
+        error: "INVALID_PROVIDER_ID"
+      });
+      return;
+    }
+
+    if (!serviceId) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Service ID is required in URL params",
+        error: "MISSING_SERVICE_ID"
+      });
+      return;
+    }
+
+    const providerProfile = await ProviderProfileController.getProviderProfile(
+      { _id: new Types.ObjectId(id) }, 
+      res
+    );
+    if (!providerProfile) return;
+    
+    const success = await ProviderProfileController.manageServiceOffering(
+      providerProfile, 
+      serviceId, 
+      'remove', 
+      res
+    );
+    
+    if (!success) return;
+    
+  } catch (error) {
+    handleError(res, error, "Failed to remove service offering");
+  }
+}
 
   /**
    * Add penalty to provider (Admin only)

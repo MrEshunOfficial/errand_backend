@@ -1,4 +1,3 @@
-// routes/providerProfile.routes.ts
 import express from "express";
 import {
   authenticateToken,
@@ -9,219 +8,131 @@ import ProviderProfileController from "../controllers/providerProfile.controller
 
 const router = express.Router();
 
-// ===================================================================
-// PUBLIC PROVIDER PROFILE ROUTES - NO AUTHENTICATION REQUIRED
-// ===================================================================
-// CRITICAL: These routes must come BEFORE router.use(authenticateToken)
+// Public routes
+router.get("/public/search", ProviderProfileController.searchPublicProviders.bind(ProviderProfileController));
+router.get("/public/browse", ProviderProfileController.getPublicProviderProfiles.bind(ProviderProfileController));
+router.get("/public/:id", ProviderProfileController.getPublicProviderProfile.bind(ProviderProfileController));
 
-// Public provider search and discovery - MOST SPECIFIC FIRST
-router.get("/public/search", ProviderProfileController.searchPublicProviders);
-router.get(
-  "/public/browse",
-  ProviderProfileController.getPublicProviderProfiles
-);
-
-// Public individual provider profile - PARAMETERIZED ROUTES LAST
-router.get("/public/:id", ProviderProfileController.getPublicProviderProfile);
-
-// ===================================================================
-// AUTHENTICATION REQUIRED FOR ALL ROUTES BELOW
-// ===================================================================
+// Authenticated routes
 router.use(authenticateToken);
 
-// ===================================================================
-// CURRENT USER'S PROVIDER PROFILE ROUTES - SPECIFIC ROUTES FIRST
-// ===================================================================
-router.post("/", ProviderProfileController.createProviderProfile as any);
-router.get("/", ProviderProfileController.getMyProviderProfile as any);
-router.put("/", ProviderProfileController.updateMyProviderProfile as any);
+router.post("/", ProviderProfileController.createProviderProfile.bind(ProviderProfileController));
+router.get("/me", ProviderProfileController.getMyProviderProfile.bind(ProviderProfileController));
+router.put("/me", ProviderProfileController.updateMyProviderProfile.bind(ProviderProfileController));
 
-// ===================================================================
-// CURRENT USER'S PROVIDER SUB-RESOURCE MANAGEMENT - SPECIFIC NESTED ROUTES
-// ===================================================================
 router.patch(
-  "/toggle-availability",
-  ProviderProfileController.toggleMyAvailability as any
+  "/me/toggle-availability",
+  ProviderProfileController.toggleMyAvailability.bind(ProviderProfileController)
 );
+
 router.post(
-  "/service-offerings",
-  ProviderProfileController.addMyServiceOffering as any
+  "/me/service-offerings",
+  ProviderProfileController.addMyServiceOffering.bind(ProviderProfileController)
 );
 router.delete(
-  "/service-offerings",
-  ProviderProfileController.removeMyServiceOffering as any
-);
-router.patch(
-  "/working-hours",
-  ProviderProfileController.updateMyWorkingHours as any
+  "/me/service-offerings/:serviceId",
+  ProviderProfileController.removeMyServiceOffering.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER STATISTICS AND ANALYTICS ROUTES (Super Admin only)
-// ===================================================================
-// CRITICAL: These MUST come before any parameterized routes
+router.patch(
+  "/me/working-hours",
+  ProviderProfileController.updateMyWorkingHours.bind(ProviderProfileController)
+);
+
 router.get(
   "/statistics",
   requireSuperAdmin,
-  ProviderProfileController.getProviderStatistics
+  ProviderProfileController.getProviderStatistics.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER DISCOVERY AND FILTERING ROUTES (Admin only)
-// ===================================================================
-// SPECIFIC DISCOVERY ROUTES - Before parameterized routes
-router.get(
-  "/all",
-  requireAdmin,
-  ProviderProfileController.getAllProviderProfiles
-);
-router.get(
-  "/available",
-  requireAdmin,
-  ProviderProfileController.getAvailableProviders
-);
-router.get(
-  "/top-rated",
-  requireAdmin,
-  ProviderProfileController.getTopRatedProviders
-);
-router.get(
-  "/high-risk",
-  requireAdmin,
-  ProviderProfileController.getHighRiskProviders
-);
+router.get("/all", requireAdmin, ProviderProfileController.getAllProviderProfiles.bind(ProviderProfileController));
+router.get("/available", requireAdmin, ProviderProfileController.getAvailableProviders.bind(ProviderProfileController));
+router.get("/top-rated", requireAdmin, ProviderProfileController.getTopRatedProviders.bind(ProviderProfileController));
+router.get("/high-risk", requireAdmin, ProviderProfileController.getHighRiskProviders.bind(ProviderProfileController));
 router.get(
   "/overdue-assessments",
   requireAdmin,
-  ProviderProfileController.getOverdueRiskAssessments
+  ProviderProfileController.getOverdueRiskAssessments.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER BULK OPERATIONS (Super Admin only)
-// ===================================================================
-// BULK ROUTES - Before individual parameterized routes
 router.patch(
   "/bulk/risk-assessments",
   requireSuperAdmin,
-  ProviderProfileController.bulkUpdateRiskAssessments
+  ProviderProfileController.bulkUpdateRiskAssessments.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER ROUTES BY SPECIFIC PATTERNS (Admin only)
-// ===================================================================
-// SPECIFIC PATTERN ROUTES - Before generic :id routes
 router.get(
   "/by-profile/:profileId",
   requireAdmin,
-  ProviderProfileController.getProviderProfileByProfileId
+  ProviderProfileController.getProviderProfileByProfileId.bind(ProviderProfileController)
 );
-
-// Filter by status and risk level
 router.get(
   "/by-status/:status",
   requireAdmin,
-  ProviderProfileController.getProvidersByStatus
+  ProviderProfileController.getProvidersByStatus.bind(ProviderProfileController)
 );
 router.get(
   "/by-risk-level/:riskLevel",
   requireAdmin,
-  ProviderProfileController.getProvidersByRiskLevel
+  ProviderProfileController.getProvidersByRiskLevel.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER ADMIN ROUTES BY ID - Generic parameterized routes
-// ===================================================================
-// BASIC CRUD - Single parameter routes
-router.get(
-  "/:id",
-  requireAdmin,
-  ProviderProfileController.getProviderProfileById
-);
-router.put(
-  "/:id",
-  requireAdmin,
-  ProviderProfileController.updateProviderProfile
-);
-router.delete(
-  "/:id",
-  requireAdmin,
-  ProviderProfileController.deleteProviderProfile
-);
+router.get("/:id", requireAdmin, ProviderProfileController.getProviderProfileById.bind(ProviderProfileController));
+router.put("/:id", requireAdmin, ProviderProfileController.updateProviderProfile.bind(ProviderProfileController));
+router.delete("/:id", requireAdmin, ProviderProfileController.deleteProviderProfile.bind(ProviderProfileController));
 
-// ===================================================================
-// PROVIDER SUB-RESOURCE MANAGEMENT (Admin only)
-// ===================================================================
-// SPECIFIC SUB-RESOURCE ROUTES - Single ID with specific actions
-
-// Provider operational status management
 router.patch(
   "/:id/operational-status",
   requireAdmin,
-  ProviderProfileController.updateOperationalStatus
+  ProviderProfileController.updateOperationalStatus.bind(ProviderProfileController)
 );
 router.patch(
   "/:id/toggle-availability",
   requireAdmin,
-  ProviderProfileController.toggleAvailability
+  ProviderProfileController.toggleAvailability.bind(ProviderProfileController)
 );
-
-// Provider performance management
 router.patch(
   "/:id/performance-metrics",
   requireAdmin,
-  ProviderProfileController.updatePerformanceMetrics
+  ProviderProfileController.updatePerformanceMetrics.bind(ProviderProfileController)
 );
-router.post(
-  "/:id/penalties",
-  requireAdmin,
-  ProviderProfileController.addPenalty
-);
-
-// Provider working hours management
+router.post("/:id/penalties", requireAdmin, ProviderProfileController.addPenalty.bind(ProviderProfileController));
 router.patch(
   "/:id/working-hours",
   requireAdmin,
-  ProviderProfileController.updateWorkingHours
+  ProviderProfileController.updateWorkingHours.bind(ProviderProfileController)
 );
 
-// ===================================================================
-// PROVIDER RISK MANAGEMENT ROUTES (Admin only)
-// ===================================================================
-// RISK-SPECIFIC SUB-RESOURCE ROUTES
-router.patch(
-  "/:id/risk-assessment",
-  requireAdmin,
-  ProviderProfileController.updateRiskAssessment
-);
-router.get(
-  "/:id/risk-score",
-  requireAdmin,
-  ProviderProfileController.getProviderRiskScore
-);
-router.get(
-  "/:id/risk-history",
-  requireAdmin,
-  ProviderProfileController.getRiskAssessmentHistory
-);
-router.patch(
-  "/:id/schedule-assessment",
-  requireAdmin,
-  ProviderProfileController.scheduleNextAssessment
-);
-
-// ===================================================================
-// PROVIDER SERVICE OFFERING MANAGEMENT (Admin only)
-// ===================================================================
-// MOST SPECIFIC ROUTES - Multiple parameters
 router.post(
   "/:id/service-offerings",
   requireAdmin,
-  ProviderProfileController.addServiceOffering
+  ProviderProfileController.addServiceOffering.bind(ProviderProfileController)
 );
 router.delete(
   "/:id/service-offerings/:serviceId",
   requireAdmin,
-  ProviderProfileController.removeServiceOffering
+  ProviderProfileController.removeServiceOffering.bind(ProviderProfileController)
+);
+
+router.patch(
+  "/:id/risk-assessment",
+  requireAdmin,
+  ProviderProfileController.updateRiskAssessment.bind(ProviderProfileController)
+);
+router.get(
+  "/:id/risk-score",
+  requireAdmin,
+  ProviderProfileController.getProviderRiskScore.bind(ProviderProfileController)
+);
+router.get(
+  "/:id/risk-history",
+  requireAdmin,
+  ProviderProfileController.getRiskAssessmentHistory.bind(ProviderProfileController)
+);
+router.patch(
+  "/:id/schedule-assessment",
+  requireAdmin,
+  ProviderProfileController.scheduleNextAssessment.bind(ProviderProfileController)
 );
 
 export default router;

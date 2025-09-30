@@ -82,3 +82,7 @@ export interface ProviderProfileResponse {
   providerProfile?: Partial<ProviderProfile>;
   error?: string;
 }
+
+// export interface ProviderProfileWithServices extends ProviderProfile {
+//   serviceOfferings: Pick<Service, "_id" | "title" | "categoryId" | "basePrice">[];
+// }

@@ -8,6 +8,7 @@ import {
 } from "./base.types";
 import { ModerationStatus } from "./base.types";
 import { Category } from "./category.types";
+import { ProviderProfile } from "./provider-profile.types";  // Added import for ProviderProfile
 
 export interface Service extends BaseEntity, SoftDeletable {
   title: string;
@@ -16,11 +17,11 @@ export interface Service extends BaseEntity, SoftDeletable {
   priceBasedOnServiceType: boolean;
   categoryId: Types.ObjectId;
   images: FileReference[];
-
+  providerCount?: number;
+  providers?: Types.ObjectId[];
   isPopular: boolean;
   status: ServiceStatus;
   tags: string[];
-
   basePrice?: number;
   priceRange?: {
     min: number;
@@ -57,6 +58,15 @@ export interface ServiceFilters {
   };
   rating?: number;
   moderationStatus?: ModerationStatus[];
+  // Added provider-specific filters
+  providerId?: Types.ObjectId;
+  providerLocation?: {
+    ghanaPostGPS?: string;
+    region?: string;
+    city?: string;
+    radius?: number;
+  };
+  providerRating?: number;
 }
 
 // Service with populated category details
@@ -74,4 +84,21 @@ export interface ServiceQueryParams {
   categoryId?: string;
   status?: ServiceStatus;
   popular?: boolean;
+  //provider-related query params
+  includeProviders?: boolean;
+  providerSort?: string;
+}
+
+//Populated interface for providers
+export type ProviderSummary = Pick<ProviderProfile, "_id" | "businessName" | "providerContactInfo" | "performanceMetrics"> & {
+  serviceCount?: number;
+};
+
+export interface ServiceWithProviders extends Omit<Service, 'providers'> {
+  providers: ProviderSummary[];
+}
+
+// Added: Fully populated version combining category and providers
+export interface ServiceWithDetails extends Omit<ServiceWithCategory, 'providers'> {
+  providers: ProviderSummary[];
 }

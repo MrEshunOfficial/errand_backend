@@ -199,6 +199,15 @@ const serviceSchema = new Schema<Service, IServiceModel, IServiceMethods>(
       trim: true,
       maxlength: 1000,
     },
+    providers: {
+      type: [Schema.Types.ObjectId],
+      ref: "ProviderProfile",
+      default: [],
+    },
+    providerCount: {
+      type: Number,
+      default: 0,
+    },
     // Soft delete fields - make them optional in schema but handle properly in methods
     isDeleted: {
       type: Boolean,
@@ -232,6 +241,7 @@ serviceSchema.index({ "priceRange.min": 1, "priceRange.max": 1 });
 serviceSchema.index({ submittedBy: 1 });
 serviceSchema.index({ createdAt: -1 });
 serviceSchema.index({ priceBasedOnServiceType: 1 }); // Add index for price-based filtering
+serviceSchema.index({ providers: 1 });
 
 // Compound indexes for common queries
 serviceSchema.index({ categoryId: 1, status: 1, isPopular: -1 });
@@ -257,6 +267,14 @@ serviceSchema.pre("save", function (next) {
     this.basePrice = undefined;
     this.priceRange = undefined;
     this.priceDescription = undefined;
+  }
+  next();
+});
+
+// Pre-save middleware to set providerCount based on providers array
+serviceSchema.pre("save", function (next) {
+  if (this.isModified("providers")) {
+    this.providerCount = this.providers?.length || 0;
   }
   next();
 });

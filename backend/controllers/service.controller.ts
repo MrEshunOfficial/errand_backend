@@ -1,9 +1,11 @@
-// controllers/service.controller.ts
+// controllers/service.controller.ts - Updated with provider population
 import { Request, Response } from "express";
 import { Types } from "mongoose";
 import { ServiceModel } from "../models/service.model";
 import { AuthenticatedRequest } from "../utils/controller-utils/controller.utils";
-import { ServiceStatus } from "../types";
+import { ServiceStatus } from "../types/base.types";
+import { ProviderProfileModel } from "../models/providerProfile.model";
+
 export class ServiceController {
   private handleError(res: Response, error: unknown, message: string, statusCode = 500): void {
     console.error(`${message}:`, error);
@@ -101,7 +103,7 @@ export class ServiceController {
     
     const {
       category, status, isPopular, tags, minPrice, maxPrice, search,
-      priceBasedOnServiceType
+      priceBasedOnServiceType, providerId
     } = query;
 
     if (category) filter.categoryId = category;
@@ -117,6 +119,13 @@ export class ServiceController {
     if (search) {
       filter.$text = { $search: search as string };
     }
+    if (providerId) {
+      if (this.validateObjectId(providerId)) {
+        filter.providers = new Types.ObjectId(providerId);
+      } else {
+        // For now, ignore invalid providerId; could throw error if needed
+      }
+    }
 
     if (minPrice || maxPrice) {
       filter.priceBasedOnServiceType = false;
@@ -125,6 +134,113 @@ export class ServiceController {
     }
 
     return filter;
+  }
+
+  private sortProviders(providers: any[], providerSort?: string): any[] {
+    if (!providerSort || !providers || providers.length === 0) return providers;
+
+    const [sortField = "businessName", sortDir = "asc"] = providerSort.split(" ");
+    const dir = sortDir.toLowerCase() === "desc" ? -1 : 1;
+
+    return providers.sort((a: any, b: any) => {
+      let va = this.getProviderSortValue(a, sortField);
+      let vb = this.getProviderSortValue(b, sortField);
+
+      if (va === vb) return 0;
+      return va > vb ? dir : -dir;
+    });
+  }
+
+  private getProviderSortValue(provider: any, field: string): any {
+    if (field === "rating") {
+      return provider.performanceMetrics?.averageRating || 0;
+    }
+    if (field === "businessName") {
+      return provider.businessName?.toLowerCase() || "";
+    }
+    if (field === "reviewCount") {
+      return provider.performanceMetrics?.reviewCount || 0;
+    }
+    // Add more fields as needed
+    return 0;
+  }
+
+  // NEW: Method to populate service providers dynamically
+  private async populateServiceProviders(services: any[]): Promise<any[]> {
+    if (!services || services.length === 0) return services;
+
+    const serviceIds = services.map(service => service._id);
+    
+    // Find all provider profiles that offer any of these services
+    const providerProfiles = await ProviderProfileModel.find({
+      serviceOfferings: { $in: serviceIds },
+      isDeleted: { $ne: true }
+    })
+    .select("_id profileId businessName providerContactInfo performanceMetrics operationalStatus serviceOfferings")
+    .populate("profileId", "fullName email profilePicture")
+    .lean();
+
+    // Group providers by service
+    const serviceProvidersMap: { [serviceId: string]: any[] } = {};
+    
+    providerProfiles.forEach(provider => {
+      provider.serviceOfferings?.forEach((serviceId: any) => {
+        const serviceIdStr = serviceId.toString();
+        if (!serviceProvidersMap[serviceIdStr]) {
+          serviceProvidersMap[serviceIdStr] = [];
+        }
+        serviceProvidersMap[serviceIdStr].push(provider);
+      });
+    });
+
+    // Update services with their providers
+    return services.map(service => {
+      const serviceIdStr = service._id.toString();
+      const providers = serviceProvidersMap[serviceIdStr] || [];
+      
+      return {
+        ...service,
+        providers,
+        providerCount: providers.length
+      };
+    });
+  }
+
+  // NEW: Method to update service provider counts in database
+  private async updateServiceProviderCounts(serviceIds?: Types.ObjectId[]): Promise<void> {
+    try {
+      let servicesToUpdate = serviceIds;
+      
+      if (!servicesToUpdate) {
+        // Get all service IDs if none provided
+        const allServices = await ServiceModel.find({ isDeleted: false }).select('_id').lean();
+        servicesToUpdate = allServices.map(s => s._id);
+      }
+
+      for (const serviceId of servicesToUpdate) {
+        // Count providers offering this service
+        const providerCount = await ProviderProfileModel.countDocuments({
+          serviceOfferings: serviceId,
+          isDeleted: { $ne: true }
+        });
+
+        // Get provider IDs
+        const providers = await ProviderProfileModel.find({
+          serviceOfferings: serviceId,
+          isDeleted: { $ne: true }
+        }).select('_id').lean();
+
+        const providerIds = providers.map(p => p._id);
+
+        // Update the service
+        await ServiceModel.findByIdAndUpdate(serviceId, {
+          providers: providerIds,
+          providerCount
+        });
+      }
+    } catch (error) {
+      console.error('Error updating service provider counts:', error);
+    }
   }
 
   private async paginatedQuery(
@@ -141,7 +257,8 @@ export class ServiceController {
 
     let queryBuilder = ServiceModel.find(filter);
     
-    [...populate, ...additionalPopulate].forEach(field => {
+    const allPopulate = [...populate, ...additionalPopulate];
+    allPopulate.forEach(field => {
       if (field === "category") queryBuilder = queryBuilder.populate("category", "name slug");
       else if (field === "submittedBy") queryBuilder = queryBuilder.populate("submittedBy", "name email");
       else if (field === "approvedBy") queryBuilder = queryBuilder.populate("approvedBy", "name email");
@@ -154,8 +271,28 @@ export class ServiceController {
       ServiceModel.countDocuments(filter)
     ]);
 
+    // Always populate providers dynamically
+    let servicesWithProviders = await this.populateServiceProviders(data);
+
+    // Sort providers if requested
+    if (query.includeProviders !== "false" && query.providerSort) {
+      servicesWithProviders.forEach((service: any) => {
+        if (service.providers) {
+          service.providers = this.sortProviders(service.providers, query.providerSort as string);
+        }
+      });
+    }
+
+    // Filter out providers if not requested
+    if (query.includeProviders === "false") {
+      servicesWithProviders = servicesWithProviders.map(service => {
+        const { providers, ...serviceWithoutProviders } = service;
+        return serviceWithoutProviders;
+      });
+    }
+
     return {
-      data,
+      data: servicesWithProviders,
       pagination: this.buildPaginationResponse(page, limit, total),
       total
     };
@@ -170,8 +307,11 @@ export class ServiceController {
       
       // Add additional populate fields for admins to see deletion info
       const additionalPopulate = isAdmin ? ["deletedBy"] : [];
+
+      // Determine populate fields
+      let populateFields = ["category", "submittedBy"];
       
-      const result = await this.paginatedQuery(req.query, filter, ["category", "submittedBy"], additionalPopulate);
+      const result = await this.paginatedQuery(req.query, filter, populateFields, additionalPopulate);
       
       // Add admin-specific metadata if user is admin
       const response: any = {
@@ -222,6 +362,7 @@ export class ServiceController {
       };
 
       const filter = this.buildServiceFilter(req.query, baseFilter);
+
       const result = await this.paginatedQuery(req.query, filter, [], ["approvedBy", "rejectedBy"]);
 
       const statusCounts = await ServiceModel.aggregate([
@@ -265,54 +406,84 @@ export class ServiceController {
         filter.isDeleted = false;
       }
 
-      const service = await ServiceModel.findOne(filter)
+      let query = ServiceModel.findOne(filter)
         .populate("category", "name slug description")
         .populate("submittedBy", "name email")
         .populate("approvedBy", "name email")
         .populate("rejectedBy", "name email")
         .populate("deletedBy", "name email");
 
+      const service: any = await query.lean();
+
       if (!service) {
         res.status(404).json({ success: false, message: "Service not found" });
         return;
       }
 
-      res.status(200).json({ success: true, data: service });
+      // Populate providers dynamically
+      const [serviceWithProviders] = await this.populateServiceProviders([service]);
+
+      // Sort providers if requested
+      if (req.query.includeProviders !== "false" && req.query.providerSort && serviceWithProviders.providers) {
+        serviceWithProviders.providers = this.sortProviders(serviceWithProviders.providers, req.query.providerSort as string);
+      }
+
+      // Remove providers if not requested
+      if (req.query.includeProviders === "false") {
+        delete serviceWithProviders.providers;
+      }
+
+      res.status(200).json({ success: true, data: serviceWithProviders });
     } catch (error) {
       this.handleError(res, error, "Error fetching service");
     }
   }
 
- async getServiceBySlug(req: Request, res: Response): Promise<void> {
-  try {
-    const { slug } = req.params;
+  async getServiceBySlug(req: Request, res: Response): Promise<void> {
+    try {
+      const { slug } = req.params;
 
-    // Check if user is admin to allow viewing deleted services
-    const isAdmin = (req as AuthenticatedRequest).user?.isAdmin || (req as AuthenticatedRequest).user?.isSuperAdmin || false;
-    
-    // Build filter similar to getServiceById
-    const filter: any = { slug };
-    if (!isAdmin) {
-      filter.isDeleted = false;
+      // Check if user is admin to allow viewing deleted services
+      const isAdmin = (req as AuthenticatedRequest).user?.isAdmin || (req as AuthenticatedRequest).user?.isSuperAdmin || false;
+      
+      // Build filter similar to getServiceById
+      const filter: any = { slug };
+      if (!isAdmin) {
+        filter.isDeleted = false;
+      }
+
+      let query = ServiceModel.findOne(filter)
+        .populate("category", "name slug description")
+        .populate("submittedBy", "name email")
+        .populate("approvedBy", "name email")
+        .populate("rejectedBy", "name email")
+        .populate("deletedBy", "name email");
+
+      const service: any = await query.lean();
+
+      if (!service) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      // Populate providers dynamically
+      const [serviceWithProviders] = await this.populateServiceProviders([service]);
+
+      // Sort providers if requested
+      if (req.query.includeProviders !== "false" && req.query.providerSort && serviceWithProviders.providers) {
+        serviceWithProviders.providers = this.sortProviders(serviceWithProviders.providers, req.query.providerSort as string);
+      }
+
+      // Remove providers if not requested
+      if (req.query.includeProviders === "false") {
+        delete serviceWithProviders.providers;
+      }
+
+      res.status(200).json({ success: true, data: serviceWithProviders });
+    } catch (error) {
+      this.handleError(res, error, "Error fetching service by slug");
     }
-
-    const service = await ServiceModel.findOne(filter)
-      .populate("category", "name slug description")
-      .populate("submittedBy", "name email")
-      .populate("approvedBy", "name email")
-      .populate("rejectedBy", "name email")
-      .populate("deletedBy", "name email");
-
-    if (!service) {
-      res.status(404).json({ success: false, message: "Service not found" });
-      return;
-    }
-
-    res.status(200).json({ success: true, data: service });
-  } catch (error) {
-    this.handleError(res, error, "Error fetching service by slug");
   }
-}
 
   async createService(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
@@ -340,6 +511,9 @@ export class ServiceController {
         serviceData.priceDescription = undefined;
       }
 
+      // Ensure providers starts empty
+      serviceData.providers = [];
+
       const service = new ServiceModel(serviceData);
       await service.save();
       await service.populate("category", "name slug");
@@ -364,7 +538,7 @@ export class ServiceController {
         return;
       }
 
-      ["submittedBy", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt"]
+      ["submittedBy", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt", "providers", "providerCount"]
         .forEach(field => delete updates[field]);
 
       if (updates.hasOwnProperty('priceBasedOnServiceType') && updates.priceBasedOnServiceType === false) {
@@ -498,7 +672,30 @@ export class ServiceController {
   async getPopularServices(req: Request, res: Response): Promise<void> {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
-      const services = await ServiceModel.findPopular().limit(limit);
+      let query = ServiceModel.findPopular();
+
+      let services: any[] = await query.limit(limit).lean();
+
+      // Populate providers dynamically
+      services = await this.populateServiceProviders(services);
+
+      // Sort providers if requested
+      if (req.query.includeProviders !== "false" && req.query.providerSort) {
+        services.forEach(service => {
+          if (service.providers) {
+            service.providers = this.sortProviders(service.providers, req.query.providerSort as string);
+          }
+        });
+      }
+
+      // Remove providers if not requested
+      if (req.query.includeProviders === "false") {
+        services = services.map(service => {
+          const { providers, ...serviceWithoutProviders } = service;
+          return serviceWithoutProviders;
+        });
+      }
+
       res.status(200).json({ success: true, data: services });
     } catch (error) {
       this.handleError(res, error, "Error fetching popular services");
@@ -544,8 +741,11 @@ export class ServiceController {
       }
 
       const categoryObjectId = new Types.ObjectId(categoryId);
+      
+      let query = ServiceModel.findByCategory(categoryObjectId);
+
       const [services, total] = await Promise.all([
-        ServiceModel.findByCategory(categoryObjectId).skip(skip).limit(limit),
+        query.skip(skip).limit(limit).lean(),
         ServiceModel.countDocuments({
           categoryId: categoryObjectId,
           status: ServiceStatus.APPROVED,
@@ -553,9 +753,29 @@ export class ServiceController {
         })
       ]);
 
+      // Populate providers dynamically
+      let data: any[] = await this.populateServiceProviders(services);
+
+      // Sort providers if requested
+      if (req.query.includeProviders !== "false" && req.query.providerSort) {
+        data.forEach(service => {
+          if (service.providers) {
+            service.providers = this.sortProviders(service.providers, req.query.providerSort as string);
+          }
+        });
+      }
+
+      // Remove providers if not requested
+      if (req.query.includeProviders === "false") {
+        data = data.map(service => {
+          const { providers, ...serviceWithoutProviders } = service;
+          return serviceWithoutProviders;
+        });
+      }
+
       res.status(200).json({
         success: true,
-        data: services,
+        data,
         pagination: this.buildPaginationResponse(page, limit, total),
       });
     } catch (error) {
@@ -567,17 +787,37 @@ export class ServiceController {
     try {
       const { page, limit, skip } = this.getPaginationParams(req.query);
       
+      let query = ServiceModel.findPendingApproval()
+        .populate("submittedBy", "name email");
+
       const [services, total] = await Promise.all([
-        ServiceModel.findPendingApproval()
-          .populate("submittedBy", "name email")
-          .skip(skip)
-          .limit(limit),
+        query.skip(skip).limit(limit).lean(),
         ServiceModel.countDocuments({ status: ServiceStatus.PENDING_APPROVAL, isDeleted: false })
       ]);
 
+      // Populate providers dynamically
+      let data: any[] = await this.populateServiceProviders(services);
+
+      // Sort providers if requested
+      if (req.query.includeProviders !== "false" && req.query.providerSort) {
+        data.forEach(service => {
+          if (service.providers) {
+            service.providers = this.sortProviders(service.providers, req.query.providerSort as string);
+          }
+        });
+      }
+
+      // Remove providers if not requested
+      if (req.query.includeProviders === "false") {
+        data = data.map(service => {
+          const { providers, ...serviceWithoutProviders } = service;
+          return serviceWithoutProviders;
+        });
+      }
+
       res.status(200).json({
         success: true,
-        data: services,
+        data,
         pagination: this.buildPaginationResponse(page, limit, total),
       });
     } catch (error) {
@@ -594,11 +834,160 @@ export class ServiceController {
       };
       
       const filter = this.buildServiceFilter(req.query, baseFilter);
-      const result = await this.paginatedQuery(req.query, filter);
+
+      // Determine populate fields
+      let populateFields = ["category", "submittedBy"];
+
+      const result = await this.paginatedQuery(req.query, filter, populateFields);
 
       res.status(200).json({ success: true, ...result });
     } catch (error) {
       this.handleError(res, error, "Error fetching services with pricing");
     }
   }
+
+  // Updated method: Add provider to service
+  async addProviderToService(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id: serviceId } = req.params;
+      const { providerId } = req.body;
+
+      if (!this.validateObjectId(serviceId) || !this.validateObjectId(providerId)) {
+        res.status(400).json({ success: false, message: "Invalid service or provider ID" });
+        return;
+      }
+
+      const service = await ServiceModel.findOne({ _id: serviceId, isDeleted: false });
+      if (!service) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      // Check if provider exists
+      const provider = await ProviderProfileModel.findById(providerId);
+      if (!provider) {
+        res.status(404).json({ success: false, message: "Provider not found" });
+        return;
+      }
+
+      const providerObjectId = new Types.ObjectId(providerId);
+      
+      // Add service to provider's serviceOfferings if not already there
+      if (!provider.serviceOfferings?.includes(new Types.ObjectId(serviceId))) {
+        await provider.addServiceOffering(new Types.ObjectId(serviceId));
+      }
+
+      // Update service provider counts
+      await this.updateServiceProviderCounts([new Types.ObjectId(serviceId)]);
+
+      // Get updated service with providers
+      const updatedService = await ServiceModel.findById(serviceId);
+
+      res.status(200).json({
+        success: true,
+        message: "Provider added to service successfully",
+        data: updatedService,
+      });
+    } catch (error) {
+      this.handleError(res, error, "Error adding provider to service");
+    }
+  }
+
+  // Updated method: Remove provider from service
+  async removeProviderFromService(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id: serviceId } = req.params;
+      const { providerId } = req.body;
+
+      if (!this.validateObjectId(serviceId) || !this.validateObjectId(providerId)) {
+        res.status(400).json({ success: false, message: "Invalid service or provider ID" });
+        return;
+      }
+
+      const service = await ServiceModel.findOne({ _id: serviceId, isDeleted: false });
+      if (!service) {
+        res.status(404).json({ success: false, message: "Service not found" });
+        return;
+      }
+
+      // Check if provider exists
+      const provider = await ProviderProfileModel.findById(providerId);
+      if (!provider) {
+        res.status(404).json({ success: false, message: "Provider not found" });
+        return;
+      }
+
+      // Remove service from provider's serviceOfferings
+      await provider.removeServiceOffering(new Types.ObjectId(serviceId));
+
+      // Update service provider counts
+      await this.updateServiceProviderCounts([new Types.ObjectId(serviceId)]);
+
+      // Get updated service
+      const updatedService = await ServiceModel.findById(serviceId);
+
+      res.status(200).json({
+        success: true,
+        message: "Provider removed from service successfully",
+        data: updatedService,
+      });
+    } catch (error) {
+      this.handleError(res, error, "Error removing provider from service");
+    }
+  }
+
+  // NEW: Utility method to sync all service provider counts
+  async syncServiceProviderCounts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      await this.updateServiceProviderCounts();
+      
+      res.status(200).json({
+        success: true,
+        message: "Service provider counts synchronized successfully"
+      });
+    } catch (error) {
+      this.handleError(res, error, "Error synchronizing service provider counts");
+    }
+  }
+
+  // NEW: Get services by provider
+  async getServicesByProvider(req: Request, res: Response): Promise<void> {
+    try {
+      const { providerId } = req.params;
+
+      if (!this.validateObjectId(providerId)) {
+        res.status(400).json({ success: false, message: "Invalid provider ID" });
+        return;
+      }
+
+      // Find provider
+      const provider = await ProviderProfileModel.findById(providerId);
+      if (!provider) {
+        res.status(404).json({ success: false, message: "Provider not found" });
+        return;
+      }
+
+      // Get services offered by this provider
+      const filter = {
+        _id: { $in: provider.serviceOfferings },
+        status: ServiceStatus.APPROVED,
+        isDeleted: false
+      };
+
+      const result = await this.paginatedQuery(req.query, filter, ["category"]);
+
+      res.status(200).json({
+        success: true,
+        ...result,
+        provider: {
+          _id: provider._id,
+          businessName: provider.businessName,
+          performanceMetrics: provider.performanceMetrics
+        }
+      });
+    } catch (error) {
+      this.handleError(res, error, "Error fetching services by provider");
+    }
+  }
+
 }

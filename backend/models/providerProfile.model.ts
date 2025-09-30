@@ -718,7 +718,7 @@ providerProfileSchema.methods.removeServiceOffering = function (
 ) {
   if (this.serviceOfferings) {
     this.serviceOfferings = this.serviceOfferings.filter(
-      (id) => !id.equals(serviceId)
+      (id: { equals: (arg0: Types.ObjectId) => any; }) => !id.equals(serviceId)
     );
   }
   return this.save();
