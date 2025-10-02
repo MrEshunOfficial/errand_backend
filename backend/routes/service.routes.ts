@@ -23,6 +23,12 @@ router.put(
   serviceController.updateService.bind(serviceController) as RequestHandler
 );
 
+router.put(
+  "/:id/images",
+  authenticateToken,
+  serviceController.updateService.bind(serviceController) as RequestHandler
+);
+
 router.delete(
   "/:id",
   authenticateToken,

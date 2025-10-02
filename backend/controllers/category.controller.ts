@@ -12,7 +12,6 @@ import { ServiceModel } from "../models/service.model";
 
 export class CategoryController {
   // ==================== HELPER METHODS ====================
-
   private static handleError(
     res: Response,
     error: unknown,
@@ -338,11 +337,6 @@ export class CategoryController {
       const includeSubcategories = req.query.includeSubcategories === "true";
       const includeUserData = req.query.includeUserData === "true";
       const includeInactive = req.query.includeInactive === "true";
-      const includeServices = req.query.includeServices === "true";
-
-      if (includeServices) {
-        return CategoryController.getCategoriesWithServices(req, res);
-      }
 
       const { page, limit, skip } = CategoryController.getPaginationParams(
         req.query
@@ -388,7 +382,6 @@ export class CategoryController {
 
           return {
             ...category,
-            services: [],
             servicesCount,
           };
         })

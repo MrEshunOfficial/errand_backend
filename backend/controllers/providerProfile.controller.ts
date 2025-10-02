@@ -24,7 +24,7 @@ export class ProviderProfileController {
   // Common population options
   private static readonly POPULATE_OPTIONS = [
     { path: "profileId", select: "userId role bio location contactDetails" },
-    { path: "serviceOfferings", select: "name description categoryId" },
+    { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } }  },
   ];
 
   // Helper to get user profile with error handling
@@ -1238,7 +1238,7 @@ static async getPublicProviderProfile(
     })
     .populate([
       { path: "profileId", select: "bio location contactDetails" },
-      { path: "serviceOfferings", select: "name description categoryId pricing" }
+      { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } } }
     ])
     .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -safetyMeasures.depositAmount -businessRegistration -insurance")
     .lean()

@@ -167,44 +167,64 @@ export class ServiceController {
 
   // NEW: Method to populate service providers dynamically
   private async populateServiceProviders(services: any[]): Promise<any[]> {
-    if (!services || services.length === 0) return services;
+  if (!services || services.length === 0) return services;
 
-    const serviceIds = services.map(service => service._id);
+  const serviceIds = services.map(service => service._id);
+  
+  // Use aggregation for better performance
+  const providersByService = await ProviderProfileModel.aggregate([
+    {
+      $match: {
+        serviceOfferings: { $in: serviceIds },
+        isDeleted: { $ne: true }
+      }
+    },
+    {
+      $lookup: {
+        from: 'ProviderProfile',
+        localField: 'profileId',
+        foreignField: '_id',
+        as: 'profileDetails'
+      }
+    },
+    {
+      $unwind: '$serviceOfferings'
+    },
+    {
+      $group: {
+        _id: '$serviceOfferings',
+        providers: {
+          $push: {
+            _id: '$_id',
+            businessName: '$businessName',
+            providerContactInfo: '$providerContactInfo',
+            performanceMetrics: '$performanceMetrics',
+            operationalStatus: '$operationalStatus',
+            profileId: { $arrayElemAt: ['$profileDetails', 0] }
+          }
+        },
+        providerCount: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const providerMap = new Map(
+    providersByService.map(item => [
+      item._id.toString(),
+      { providers: item.providers, providerCount: item.providerCount }
+    ])
+  );
+
+  return services.map(service => {
+    const serviceIdStr = service._id.toString();
+    const providerData = providerMap.get(serviceIdStr) || { providers: [], providerCount: 0 };
     
-    // Find all provider profiles that offer any of these services
-    const providerProfiles = await ProviderProfileModel.find({
-      serviceOfferings: { $in: serviceIds },
-      isDeleted: { $ne: true }
-    })
-    .select("_id profileId businessName providerContactInfo performanceMetrics operationalStatus serviceOfferings")
-    .populate("profileId", "fullName email profilePicture")
-    .lean();
-
-    // Group providers by service
-    const serviceProvidersMap: { [serviceId: string]: any[] } = {};
-    
-    providerProfiles.forEach(provider => {
-      provider.serviceOfferings?.forEach((serviceId: any) => {
-        const serviceIdStr = serviceId.toString();
-        if (!serviceProvidersMap[serviceIdStr]) {
-          serviceProvidersMap[serviceIdStr] = [];
-        }
-        serviceProvidersMap[serviceIdStr].push(provider);
-      });
-    });
-
-    // Update services with their providers
-    return services.map(service => {
-      const serviceIdStr = service._id.toString();
-      const providers = serviceProvidersMap[serviceIdStr] || [];
-      
-      return {
-        ...service,
-        providers,
-        providerCount: providers.length
-      };
-    });
-  }
+    return {
+      ...service,
+      ...providerData
+    };
+  });
+}
 
   // NEW: Method to update service provider counts in database
   private async updateServiceProviderCounts(serviceIds?: Types.ObjectId[]): Promise<void> {
