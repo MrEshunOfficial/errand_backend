@@ -5,7 +5,6 @@ import {
   ProviderProfileModel,
   ProviderProfileDocument,
 } from "../models/providerProfile.model";
-
 import {
   ProviderOperationalStatus,
   RiskLevel,
@@ -24,7 +23,7 @@ export class ProviderProfileController {
   // Common population options
   private static readonly POPULATE_OPTIONS = [
     { path: "profileId", select: "userId role bio location contactDetails" },
-    { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } }  },
+    { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } } },
   ];
 
   // Helper to get user profile with error handling
@@ -151,24 +150,15 @@ export class ProviderProfileController {
         return;
       }
 
-      // Create with defaults
+      // Create with defaults aligned with new model
       const providerProfileData = {
         ...req.body,
         profileId: userProfile._id,
         operationalStatus: ProviderOperationalStatus.PROBATIONARY,
-        riskLevel: RiskLevel.LOW,
-        trustScore: 50,
-        isAvailableForWork: false,
-        totalJobs: 0,
-        completedJobs: 0,
-        cancelledJobs: 0,
-        disputedJobs: 0,
-        averageRating: 0,
-        totalReviews: 0,
-        completionRate: 0,
-        responseTimeMinutes: 0,
-        penaltiesCount: 0,
-        warningsCount: 0,
+        riskLevel: RiskLevel.MEDIUM,
+        isCurrentlyAvailable: true,
+        isAlwaysAvailable: false,
+        requireInitialDeposit: false,
       };
 
       const savedProfile = await new ProviderProfileModel(providerProfileData).save();
@@ -183,16 +173,16 @@ export class ProviderProfileController {
       
       const errorHandlers: Record<string, () => Response<ProviderProfileResponse>> = {
         ValidationError: () => res.status(400).json({ message: "Validation error", error: error.message }),
-       MongoServerError: () =>
-      error.code === 11000
-        ? res.status(409).json({
-            message: "Provider profile already exists",
-            error: "Duplicate profile ID",
-          })
-        : res.status(500).json({
-            message: "Unknown Mongo server error",
-        error: "MONGO_SERVER_ERROR",
-      }),
+        MongoServerError: () =>
+          error.code === 11000
+            ? res.status(409).json({
+                message: "Provider profile already exists",
+                error: "Duplicate profile ID",
+              })
+            : res.status(500).json({
+                message: "Unknown Mongo server error",
+                error: "MONGO_SERVER_ERROR",
+              }),
         CastError: () => res.status(400).json({ message: "Invalid ID format", error: "Invalid ObjectId format" }),
       };
 
@@ -240,12 +230,11 @@ export class ProviderProfileController {
       const providerProfile = await this.authenticateAndGetProfile(req, res);
       if (!providerProfile) return;
 
-      // Filter out admin-only fields
+      // Filter out admin-only and system-managed fields
       const {
-        profileId, operationalStatus, trustScore, riskLevel, totalJobs,
-        completedJobs, cancelledJobs, disputedJobs, averageRating, totalReviews,
-        completionRate, responseTimeMinutes, penaltiesCount, warningsCount,
-        lastPenaltyDate, suspensionHistory, ...userAllowedUpdates
+        profileId, operationalStatus, riskLevel, penaltiesCount, lastPenaltyDate,
+        lastRiskAssessmentDate, riskAssessedBy, performanceMetrics,
+        ...userAllowedUpdates
       } = req.body;
 
       Object.assign(providerProfile, userAllowedUpdates);
@@ -407,7 +396,7 @@ export class ProviderProfileController {
       const filter: any = { isDeleted: { $ne: true } };
       if (status) filter.operationalStatus = status;
       if (riskLevel) filter.riskLevel = riskLevel;
-      if (available !== undefined) filter.isAvailableForWork = (available as unknown as string) === "true";
+      if (available !== undefined) filter.isCurrentlyAvailable = (available as unknown as string) === "true";
       if (serviceId && validateObjectId(serviceId)) filter.serviceOfferings = new Types.ObjectId(serviceId);
 
       // Pagination
@@ -443,7 +432,11 @@ export class ProviderProfileController {
   }
 
   // Simplified helper methods using model static methods
-  static async getAvailableProviders(req: Request<{}, ApiResponse<ProviderProfileDocument[]>, {}, { serviceRadius?: string }>, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
+  static async getAvailableProviders(
+    req: Request<{}, ApiResponse<ProviderProfileDocument[]>, {}, { serviceRadius?: string }>, 
+    res: Response<ApiResponse<ProviderProfileDocument[]>>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const radius = req.query.serviceRadius ? Number(req.query.serviceRadius) : undefined;
       const providers = await ProviderProfileModel.findAvailableProviders(radius);
@@ -453,7 +446,11 @@ export class ProviderProfileController {
     }
   }
 
-  static async getTopRatedProviders(req: Request<{}, ApiResponse<ProviderProfileDocument[]>, {}, { limit?: string }>, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
+  static async getTopRatedProviders(
+    req: Request<{}, ApiResponse<ProviderProfileDocument[]>, {}, { limit?: string }>, 
+    res: Response<ApiResponse<ProviderProfileDocument[]>>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const limitNumber = req.query.limit ? Number(req.query.limit) : 10;
       const providers = await ProviderProfileModel.findTopRatedProviders(limitNumber);
@@ -463,7 +460,11 @@ export class ProviderProfileController {
     }
   }
 
-  static async getHighRiskProviders(req: Request, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
+  static async getHighRiskProviders(
+    req: Request, 
+    res: Response<ApiResponse<ProviderProfileDocument[]>>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const providers = await ProviderProfileModel.findHighRiskProviders();
       this.sendSuccess(res, "High-risk providers retrieved successfully", providers);
@@ -507,10 +508,14 @@ export class ProviderProfileController {
    */
   private static async toggleAvailabilityLogic(providerProfile: any, res: Response) {
     await providerProfile.toggleAvailability();
-    this.sendSuccess(res, `Provider availability ${providerProfile.isAvailableForWork ? "enabled" : "disabled"} successfully`);
+    this.sendSuccess(res, `Provider availability ${providerProfile.isCurrentlyAvailable ? "enabled" : "disabled"} successfully`);
   }
 
-  static async toggleMyAvailability(req: AuthenticatedRequest, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async toggleMyAvailability(
+    req: AuthenticatedRequest, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const providerProfile = await this.authenticateAndGetProfile(req, res);
       if (!providerProfile) return;
@@ -520,7 +525,11 @@ export class ProviderProfileController {
     }
   }
 
-  static async toggleAvailability(req: Request<{ id: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async toggleAvailability(
+    req: Request<{ id: string }>, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { id } = req.params;
       if (!validateObjectId(id)) {
@@ -540,11 +549,7 @@ export class ProviderProfileController {
    * Update performance metrics (Admin only)
    */
   static async updatePerformanceMetrics(
-    req: Request<{ id: string }, ApiResponse, Partial<{
-      completionRate: number; averageRating: number; totalJobs: number;
-      responseTimeMinutes: number; averageResponseTime: number; cancellationRate: number;
-      disputeRate: number; clientRetentionRate: number;
-    }>>,
+    req: Request<{ id: string }, ApiResponse, Partial<ProviderProfile['performanceMetrics']>>,
     res: Response<ApiResponse>,
     next: NextFunction
   ): Promise<void> {
@@ -566,266 +571,221 @@ export class ProviderProfileController {
   }
 
   // Service offering management
-private static async manageServiceOffering(
-  providerProfile: any,
-  serviceId: string,
-  action: 'add' | 'remove',
-  res: Response
-): Promise<boolean> {
-  // Validate service ID format
-  if (!validateObjectId(serviceId)) {
-    res.status(400).json({ 
-      success: false, 
-      message: "Invalid service ID format",
-      error: "INVALID_SERVICE_ID"
+  private static async manageServiceOffering(
+    providerProfile: any,
+    serviceId: string,
+    action: 'add' | 'remove',
+    res: Response
+  ): Promise<boolean> {
+    if (!validateObjectId(serviceId)) {
+      res.status(400).json({ 
+        success: false, 
+        message: "Invalid service ID format",
+        error: "INVALID_SERVICE_ID"
+      });
+      return false;
+    }
+
+    const serviceObjectId = new Types.ObjectId(serviceId);
+    
+    // Verify service exists in database
+    const { ServiceModel } = await import('../models/service.model.js');
+    const serviceExists = await ServiceModel.findOne({
+      _id: serviceObjectId,
+      isDeleted: false,
+      status: 'approved'
     });
-    return false;
-  }
 
-  const serviceObjectId = new Types.ObjectId(serviceId);
-  
-  // IMPORTANT: Verify service exists in database
-   const { ServiceModel } = await import('../models/service.model.js');
-  const serviceExists = await ServiceModel.findOne({
-    _id: serviceObjectId,
-    isDeleted: false,
-    status: 'approved'
-  });
+    if (!serviceExists) {
+      res.status(404).json({ 
+        success: false, 
+        message: "Service not found or not approved",
+        error: "SERVICE_NOT_FOUND"
+      });
+      return false;
+    }
 
-  if (!serviceExists) {
-    res.status(404).json({ 
-      success: false, 
-      message: "Service not found or not approved",
-      error: "SERVICE_NOT_FOUND"
-    });
-    return false;
-  }
-
-  try {
-    if (action === 'add') {
-      // Initialize array if needed
-      if (!providerProfile.serviceOfferings) {
-        providerProfile.serviceOfferings = [];
+    try {
+      if (action === 'add') {
+        await providerProfile.addServiceOffering(serviceObjectId);
+      } else {
+        await providerProfile.removeServiceOffering(serviceObjectId);
       }
-      
-      // Check if already exists
-      const alreadyExists = providerProfile.serviceOfferings.some(
-        (s: any) => s.toString() === serviceObjectId.toString()
+
+      ProviderProfileController.sendSuccess(
+        res, 
+        `Service offering ${action === 'add' ? 'added' : 'removed'} successfully`,
+        { serviceOfferings: providerProfile.serviceOfferings }
       );
+      return true;
       
-      if (alreadyExists) {
-        res.status(409).json({
-          success: false,
-          message: "Service already added to profile",
-          error: "SERVICE_ALREADY_EXISTS"
+    } catch (error: any) {
+      console.error(`Error ${action}ing service offering:`, error);
+      res.status(500).json({
+        success: false,
+        message: `Failed to ${action} service offering`,
+        error: error.message
+      });
+      return false;
+    }
+  }
+
+  // Token-based methods
+  static async addMyServiceOffering(
+    req: AuthenticatedRequest & Request<{}, ApiResponse, { serviceId: string }>,
+    res: Response<ApiResponse>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      if (!req.body.serviceId) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Service ID is required in request body",
+          error: "MISSING_SERVICE_ID"
         });
-        return false;
+        return;
       }
+
+      const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
+      if (!providerProfile) return;
       
-      providerProfile.serviceOfferings.push(serviceObjectId);
-      await providerProfile.save();
+      await ProviderProfileController.manageServiceOffering(
+        providerProfile, 
+        req.body.serviceId, 
+        'add', 
+        res
+      );
+    } catch (error) {
+      handleError(res, error, "Failed to add service offering");
+    }
+  }
+
+  static async removeMyServiceOffering(
+    req: AuthenticatedRequest & Request<{ serviceId: string }, ApiResponse>,
+    res: Response<ApiResponse>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { serviceId } = req.params;
       
-    } else {
-      // Remove service
-      const initialLength = providerProfile.serviceOfferings?.length || 0;
-      await providerProfile.removeServiceOffering(serviceObjectId);
-      
-      // Check if service was actually removed
-      if (providerProfile.serviceOfferings?.length === initialLength) {
-        res.status(404).json({
-          success: false,
-          message: "Service not found in provider's offerings",
-          error: "SERVICE_NOT_IN_PROFILE"
+      if (!serviceId) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Service ID is required in URL params",
+          error: "MISSING_SERVICE_ID"
         });
-        return false;
+        return;
       }
-    }
 
-    ProviderProfileController.sendSuccess(
-      res, 
-      `Service offering ${action === 'add' ? 'added' : 'removed'} successfully`,
-      { serviceOfferings: providerProfile.serviceOfferings }
-    );
-    return true;
-    
-  } catch (error: any) {
-    console.error(`Error ${action}ing service offering:`, error);
-    res.status(500).json({
-      success: false,
-      message: `Failed to ${action} service offering`,
-      error: error.message
-    });
-    return false;
+      const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
+      if (!providerProfile) return;
+      
+      await ProviderProfileController.manageServiceOffering(
+        providerProfile, 
+        serviceId, 
+        'remove', 
+        res
+      );
+    } catch (error) {
+      handleError(res, error, "Failed to remove service offering");
+    }
   }
-}
 
- // Token-based methods - FIXED
-static async addMyServiceOffering(
-  req: AuthenticatedRequest & Request<{}, ApiResponse, { serviceId: string }>,
-  res: Response<ApiResponse>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    // Validate request body
-    if (!req.body.serviceId) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Service ID is required in request body",
-        error: "MISSING_SERVICE_ID"
-      });
-      return;
+  // Admin methods
+  static async addServiceOffering(
+    req: Request<{ id: string }, ApiResponse, { serviceId: string }>,
+    res: Response<ApiResponse>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      if (!validateObjectId(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Invalid provider profile ID",
+          error: "INVALID_PROVIDER_ID"
+        });
+        return;
+      }
+
+      if (!req.body.serviceId) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Service ID is required in request body",
+          error: "MISSING_SERVICE_ID"
+        });
+        return;
+      }
+
+      const providerProfile = await ProviderProfileController.getProviderProfile(
+        { _id: new Types.ObjectId(id) }, 
+        res
+      );
+      if (!providerProfile) return;
+      
+      await ProviderProfileController.manageServiceOffering(
+        providerProfile, 
+        req.body.serviceId, 
+        'add', 
+        res
+      );
+    } catch (error) {
+      handleError(res, error, "Failed to add service offering");
     }
-
-    const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
-    if (!providerProfile) return;
-    
-    const success = await ProviderProfileController.manageServiceOffering(
-      providerProfile, 
-      req.body.serviceId, 
-      'add', 
-      res
-    );
-    
-    // If manageServiceOffering returned false, response already sent
-    if (!success) return;
-    
-  } catch (error) {
-    handleError(res, error, "Failed to add service offering");
   }
-}
 
-static async removeMyServiceOffering(
-  req: AuthenticatedRequest & Request<{ serviceId: string }, ApiResponse>,
-  res: Response<ApiResponse>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { serviceId } = req.params;
-    
-    // Validate service ID from params
-    if (!serviceId) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Service ID is required in URL params",
-        error: "MISSING_SERVICE_ID"
-      });
-      return;
+  static async removeServiceOffering(
+    req: Request<{ id: string; serviceId: string }>,
+    res: Response<ApiResponse>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { id, serviceId } = req.params;
+      
+      if (!validateObjectId(id)) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Invalid provider profile ID",
+          error: "INVALID_PROVIDER_ID"
+        });
+        return;
+      }
+
+      if (!serviceId) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Service ID is required in URL params",
+          error: "MISSING_SERVICE_ID"
+        });
+        return;
+      }
+
+      const providerProfile = await ProviderProfileController.getProviderProfile(
+        { _id: new Types.ObjectId(id) }, 
+        res
+      );
+      if (!providerProfile) return;
+      
+      await ProviderProfileController.manageServiceOffering(
+        providerProfile, 
+        serviceId, 
+        'remove', 
+        res
+      );
+    } catch (error) {
+      handleError(res, error, "Failed to remove service offering");
     }
-
-    const providerProfile = await ProviderProfileController.authenticateAndGetProfile(req, res);
-    if (!providerProfile) return;
-    
-    const success = await ProviderProfileController.manageServiceOffering(
-      providerProfile, 
-      serviceId, 
-      'remove', 
-      res
-    );
-    
-    if (!success) return;
-    
-  } catch (error) {
-    handleError(res, error, "Failed to remove service offering");
   }
-}
-
-
-// Admin methods
-static async addServiceOffering(
-  req: Request<{ id: string }, ApiResponse, { serviceId: string }>,
-  res: Response<ApiResponse>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { id } = req.params;
-    
-    if (!validateObjectId(id)) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Invalid provider profile ID",
-        error: "INVALID_PROVIDER_ID"
-      });
-      return;
-    }
-
-    if (!req.body.serviceId) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Service ID is required in request body",
-        error: "MISSING_SERVICE_ID"
-      });
-      return;
-    }
-
-    const providerProfile = await ProviderProfileController.getProviderProfile(
-      { _id: new Types.ObjectId(id) }, 
-      res
-    );
-    if (!providerProfile) return;
-    
-    const success = await ProviderProfileController.manageServiceOffering(
-      providerProfile, 
-      req.body.serviceId, 
-      'add', 
-      res
-    );
-    
-    if (!success) return;
-    
-  } catch (error) {
-    handleError(res, error, "Failed to add service offering");
-  }
-}
-static async removeServiceOffering(
-  req: Request<{ id: string; serviceId: string }>,
-  res: Response<ApiResponse>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { id, serviceId } = req.params;
-    
-    if (!validateObjectId(id)) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Invalid provider profile ID",
-        error: "INVALID_PROVIDER_ID"
-      });
-      return;
-    }
-
-    if (!serviceId) {
-      res.status(400).json({ 
-        success: false, 
-        message: "Service ID is required in URL params",
-        error: "MISSING_SERVICE_ID"
-      });
-      return;
-    }
-
-    const providerProfile = await ProviderProfileController.getProviderProfile(
-      { _id: new Types.ObjectId(id) }, 
-      res
-    );
-    if (!providerProfile) return;
-    
-    const success = await ProviderProfileController.manageServiceOffering(
-      providerProfile, 
-      serviceId, 
-      'remove', 
-      res
-    );
-    
-    if (!success) return;
-    
-  } catch (error) {
-    handleError(res, error, "Failed to remove service offering");
-  }
-}
 
   /**
    * Add penalty to provider (Admin only)
    */
-  static async addPenalty(req: Request<{ id: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async addPenalty(
+    req: Request<{ id: string }>, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { id } = req.params;
       if (!validateObjectId(id)) {
@@ -836,14 +796,7 @@ static async removeServiceOffering(
       const providerProfile = await this.getProviderProfile({ _id: new Types.ObjectId(id) }, res);
       if (!providerProfile) return;
 
-      providerProfile.penaltiesCount += 1;
-      providerProfile.lastPenaltyDate = new Date();
-
-      // Auto-adjust risk level
-      if (providerProfile.penaltiesCount >= 5) providerProfile.riskLevel = RiskLevel.HIGH;
-      else if (providerProfile.penaltiesCount >= 3) providerProfile.riskLevel = RiskLevel.MEDIUM;
-
-      await providerProfile.save();
+      await providerProfile.addPenalty();
 
       this.sendSuccess(res, "Penalty added successfully", {
         penaltiesCount: providerProfile.penaltiesCount,
@@ -858,7 +811,7 @@ static async removeServiceOffering(
   private static async updateWorkingHoursLogic(
     providerProfile: any,
     day: string,
-    hours: { start: string; end: string; isAvailable: boolean },
+    hours: { start: string; end: string },
     res: Response
   ) {
     const validDays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -873,7 +826,7 @@ static async removeServiceOffering(
   }
 
   static async updateMyWorkingHours(
-    req: AuthenticatedRequest & Request<{}, ApiResponse, { day: string; hours: { start: string; end: string; isAvailable: boolean } }>,
+    req: AuthenticatedRequest & Request<{}, ApiResponse, { day: string; hours: { start: string; end: string } }>,
     res: Response<ApiResponse>,
     next: NextFunction
   ): Promise<void> {
@@ -889,7 +842,7 @@ static async removeServiceOffering(
   }
 
   static async updateWorkingHours(
-    req: Request<{ id: string }, ApiResponse, { day: string; hours: { start: string; end: string; isAvailable: boolean } }>,
+    req: Request<{ id: string }, ApiResponse, { day: string; hours: { start: string; end: string } }>,
     res: Response<ApiResponse>,
     next: NextFunction
   ): Promise<void> {
@@ -913,8 +866,9 @@ static async removeServiceOffering(
   // Risk assessment methods
   static async updateRiskAssessment(
     req: Request<{ id: string }, ApiResponse, {
-      riskLevel?: RiskLevel; riskFactors?: any; mitigationMeasures?: any;
-      notes?: string; nextAssessmentDays?: number;
+      riskLevel?: RiskLevel; 
+      notes?: string; 
+      nextAssessmentDays?: number;
     }>,
     res: Response<ApiResponse>,
     next: NextFunction
@@ -942,14 +896,18 @@ static async removeServiceOffering(
       this.sendSuccess(res, "Risk assessment updated successfully", {
         riskLevel: providerProfile.riskLevel,
         riskScore: providerProfile.calculateRiskScore(),
-        nextAssessmentDate: providerProfile.nextAssessmentDate,
+        lastAssessmentDate: providerProfile.lastRiskAssessmentDate,
       });
     } catch (error) {
       handleError(res, error, "Failed to update risk assessment");
     }
   }
 
-  static async getProviderRiskScore(req: Request<{ id: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async getProviderRiskScore(
+    req: Request<{ id: string }>, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { id } = req.params;
       if (!validateObjectId(id)) {
@@ -963,23 +921,13 @@ static async removeServiceOffering(
       this.sendSuccess(res, "Risk score calculated successfully", {
         riskScore: providerProfile.calculateRiskScore(),
         riskLevel: providerProfile.riskLevel,
-        isRiskAssessmentOverdue: providerProfile.isRiskAssessmentOverdue(),
         lastAssessmentDate: providerProfile.lastRiskAssessmentDate,
-        nextAssessmentDate: providerProfile.nextAssessmentDate,
-        riskFactors: providerProfile.riskFactors,
-        mitigationMeasures: providerProfile.mitigationMeasures,
+        riskAssessedBy: providerProfile.riskAssessedBy,
+        penaltiesCount: providerProfile.penaltiesCount,
+        performanceMetrics: providerProfile.performanceMetrics,
       });
     } catch (error) {
       handleError(res, error, "Failed to calculate risk score");
-    }
-  }
-
-  static async getOverdueRiskAssessments(req: Request, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
-    try {
-      const providers = await ProviderProfileModel.findOverdueRiskAssessments();
-      this.sendSuccess(res, "Overdue risk assessments retrieved successfully", providers);
-    } catch (error) {
-      handleError(res, error, "Failed to get overdue risk assessments");
     }
   }
 
@@ -1004,9 +952,7 @@ static async removeServiceOffering(
       if (!providerProfile) return;
 
       await providerProfile.scheduleNextAssessment(daysFromNow);
-      this.sendSuccess(res, "Next assessment scheduled successfully", {
-        nextAssessmentDate: providerProfile.nextAssessmentDate,
-      });
+      this.sendSuccess(res, "Next assessment scheduled successfully");
     } catch (error) {
       handleError(res, error, "Failed to schedule next assessment");
     }
@@ -1029,7 +975,11 @@ static async removeServiceOffering(
     this.sendSuccess(res, message, providers);
   }
 
-  static async getProvidersByStatus(req: Request<{ status: ProviderOperationalStatus }>, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
+  static async getProvidersByStatus(
+    req: Request<{ status: ProviderOperationalStatus }>, 
+    res: Response<ApiResponse<ProviderProfileDocument[]>>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { status } = req.params;
       if (!Object.values(ProviderOperationalStatus).includes(status)) {
@@ -1048,7 +998,11 @@ static async removeServiceOffering(
     }
   }
 
-  static async getProvidersByRiskLevel(req: Request<{ riskLevel: RiskLevel }>, res: Response<ApiResponse<ProviderProfileDocument[]>>, next: NextFunction): Promise<void> {
+  static async getProvidersByRiskLevel(
+    req: Request<{ riskLevel: RiskLevel }>, 
+    res: Response<ApiResponse<ProviderProfileDocument[]>>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { riskLevel } = req.params;
       if (!Object.values(RiskLevel).includes(riskLevel)) {
@@ -1074,7 +1028,11 @@ static async removeServiceOffering(
     }
   }
 
-  static async getRiskAssessmentHistory(req: Request<{ id: string }>, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async getRiskAssessmentHistory(
+    req: Request<{ id: string }>, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const { id } = req.params;
       if (!validateObjectId(id)) {
@@ -1098,15 +1056,11 @@ static async removeServiceOffering(
       this.sendSuccess(res, "Risk assessment history retrieved successfully", {
         currentRiskLevel: providerProfile.riskLevel,
         currentRiskScore: profileInstance.calculateRiskScore(),
-        isRiskAssessmentOverdue: profileInstance.isRiskAssessmentOverdue(),
         lastAssessmentDate: providerProfile.lastRiskAssessmentDate,
-        nextAssessmentDate: providerProfile.nextAssessmentDate,
         riskAssessedBy: providerProfile.riskAssessedBy,
-        riskFactors: providerProfile.riskFactors,
-        mitigationMeasures: providerProfile.mitigationMeasures,
-        riskAssessmentNotes: providerProfile.riskAssessmentNotes,
         penaltiesCount: providerProfile.penaltiesCount,
         lastPenaltyDate: providerProfile.lastPenaltyDate,
+        performanceMetrics: providerProfile.performanceMetrics,
       });
     } catch (error) {
       handleError(res, error, "Failed to get risk assessment history");
@@ -1117,8 +1071,9 @@ static async removeServiceOffering(
     req: Request<{}, ApiResponse, {
       providerIds: string[];
       updates: {
-        riskLevel?: RiskLevel; riskFactors?: any; mitigationMeasures?: any;
-        notes?: string; nextAssessmentDays?: number;
+        riskLevel?: RiskLevel; 
+        notes?: string; 
+        nextAssessmentDays?: number;
       };
     }>,
     res: Response<ApiResponse>,
@@ -1182,14 +1137,18 @@ static async removeServiceOffering(
     }
   }
 
-  static async getProviderStatistics(req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> {
+  static async getProviderStatistics(
+    req: Request, 
+    res: Response<ApiResponse>, 
+    next: NextFunction
+  ): Promise<void> {
     try {
       const baseFilter = { isDeleted: { $ne: true } };
       
       const [
         total, active, probationary, suspended,
         lowRisk, mediumRisk, highRisk, criticalRisk,
-        available, overdue
+        available
       ] = await Promise.all([
         ProviderProfileModel.countDocuments(baseFilter),
         ProviderProfileModel.countDocuments({ ...baseFilter, operationalStatus: ProviderOperationalStatus.ACTIVE }),
@@ -1199,8 +1158,7 @@ static async removeServiceOffering(
         ProviderProfileModel.countDocuments({ ...baseFilter, riskLevel: RiskLevel.MEDIUM }),
         ProviderProfileModel.countDocuments({ ...baseFilter, riskLevel: RiskLevel.HIGH }),
         ProviderProfileModel.countDocuments({ ...baseFilter, riskLevel: RiskLevel.CRITICAL }),
-        ProviderProfileModel.countDocuments({ ...baseFilter, isAvailableForWork: true }),
-        ProviderProfileModel.countDocuments({ ...baseFilter, nextAssessmentDate: { $lt: new Date() } }),
+        ProviderProfileModel.countDocuments({ ...baseFilter, isCurrentlyAvailable: true }),
       ]);
 
       this.sendSuccess(res, "Provider statistics retrieved successfully", {
@@ -1208,7 +1166,6 @@ static async removeServiceOffering(
         byStatus: { active, probationary, suspended },
         byRiskLevel: { low: lowRisk, medium: mediumRisk, high: highRisk, critical: criticalRisk },
         availability: { available, unavailable: total - available },
-        assessments: { overdue, upToDate: total - overdue },
       });
     } catch (error) {
       handleError(res, error, "Failed to get provider statistics");
@@ -1216,292 +1173,240 @@ static async removeServiceOffering(
   }
 
   /**
- * Get public provider profile by ID (No authentication required)
- * Shows only public information suitable for customers
- */
-static async getPublicProviderProfile(
-  req: Request<{ id: string }>,
-  res: Response<ApiResponse<Partial<ProviderProfile>>>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { id } = req.params;
-    if (!validateObjectId(id)) {
-      res.status(400).json({ success: false, message: "Invalid provider profile ID" });
-      return;
-    }
-
-    const providerProfile = await ProviderProfileModel.findOne({
-      _id: new Types.ObjectId(id),
-      isDeleted: { $ne: true },
-      operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
-    })
-    .populate([
-      { path: "profileId", select: "bio location contactDetails" },
-      { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } } }
-    ])
-    .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -safetyMeasures.depositAmount -businessRegistration -insurance")
-    .lean()
-    .exec();
-
-    if (!providerProfile) {
-      res.status(404).json({ success: false, message: "Provider profile not found or not available" });
-      return;
-    }
-
-    // Only show public-facing information
-    const publicProfile: Partial<ProviderProfile> = {
-      _id: providerProfile._id,
-      profileId: providerProfile.profileId,
-      businessName: providerProfile.businessName,
-      serviceOfferings: providerProfile.serviceOfferings,
-      workingHours: providerProfile.workingHours,
-      isAvailableForWork: providerProfile.isAvailableForWork,
-      performanceMetrics: {
-        averageRating: providerProfile.performanceMetrics?.averageRating || 0,
-        totalJobs: providerProfile.performanceMetrics?.totalJobs || 0,
-        completionRate: providerProfile.performanceMetrics?.completionRate || 0,
-        responseTimeMinutes: providerProfile.performanceMetrics?.responseTimeMinutes || 0,
-        averageResponseTime: providerProfile.performanceMetrics?.averageResponseTime || 0,
-        cancellationRate: providerProfile.performanceMetrics?.cancellationRate || 0,
-        disputeRate: providerProfile.performanceMetrics?.disputeRate || 0,
-        clientRetentionRate: providerProfile.performanceMetrics?.clientRetentionRate || 0
-      },
-      safetyMeasures: {
-        requiresDeposit: providerProfile.safetyMeasures?.requiresDeposit || false,
-        hasInsurance: providerProfile.safetyMeasures?.hasInsurance || false,
-        insuranceProvider: providerProfile.safetyMeasures?.insuranceProvider,
-        insuranceExpiryDate: providerProfile.safetyMeasures?.insuranceExpiryDate,
-        emergencyContactVerified: providerProfile.safetyMeasures?.emergencyContactVerified || false
-      },
-      createdAt: providerProfile.createdAt,
-      updatedAt: providerProfile.updatedAt
-    };
-
-    // Fix: Use ProviderProfileController instead of this
-    ProviderProfileController.sendSuccess(res, "Public provider profile retrieved successfully", publicProfile);
-  } catch (error) {
-    handleError(res, error, "Failed to get public provider profile");
-  }
-}
-
-/**
- * Get all public provider profiles with search and filtering (No authentication required)
- * Shows only active providers with public information
- */
-static async getPublicProviderProfiles(
-  req: Request<{}, ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>, {}, 
-    QueryParams & { 
-      serviceId?: string; 
-      businessType?: string; 
-      minRating?: string;
-      maxServiceRadius?: string;
-      available?: string;
-      search?: string;
-      hasInsurance?: string;
-    }>,
-  res: Response<ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { 
-      page = 1, 
-      limit = 12, 
-      sort = "performanceMetrics.averageRating", 
-      order = "desc", 
-      serviceId,
-      minRating,
-      available,
-      search,
-      hasInsurance
-    } = req.query;
-
-    // Build filter for public profiles only
-    const filter: any = { 
-      isDeleted: { $ne: true },
-      operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
-    };
-
-    // Apply filters
-    if (serviceId && validateObjectId(serviceId)) {
-      filter.serviceOfferings = new Types.ObjectId(serviceId);
-    }
-    if (minRating) {
-      filter['performanceMetrics.averageRating'] = { $gte: parseFloat(minRating) };
-    }
-    if (available !== undefined) {
-      filter.isAvailableForWork = (available as string) === "true";
-    }
-    if (hasInsurance !== undefined) {
-      filter['safetyMeasures.hasInsurance'] = (hasInsurance as string) === "true";
-    }
-
-    // Add text search if provided
-    if (search) {
-      filter.$or = [
-        { businessName: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Pagination
-    const pageNum = Math.max(1, parseInt(page as unknown as string));
-    const limitNum = Math.max(1, Math.min(50, parseInt(limit as unknown as string))); // Max 50 for public
-    const skip = (pageNum - 1) * limitNum;
-    const sortDirection = order === "asc" ? 1 : -1;
-
-    const [profiles, total] = await Promise.all([
-      ProviderProfileModel.find(filter)
-        .populate([
-          { path: "profileId", select: "bio location contactDetails" },
-          { path: "serviceOfferings", select: "name description categoryId pricing" }
-        ])
-        .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -safetyMeasures.depositAmount -businessRegistration -insurance")
-        .sort({ [sort]: sortDirection })
-        .skip(skip)
-        .limit(limitNum)
-        .lean()
-        .exec(),
-      ProviderProfileModel.countDocuments(filter),
-    ]);
-
-    // Filter to only public information
-    const publicProfiles: Partial<ProviderProfile>[] = profiles.map(profile => ({
-      _id: profile._id,
-      profileId: profile.profileId,
-      businessName: profile.businessName,
-      serviceOfferings: profile.serviceOfferings,
-      workingHours: profile.workingHours,
-      isAvailableForWork: profile.isAvailableForWork,
-      performanceMetrics: {
-        averageRating: profile.performanceMetrics?.averageRating || 0,
-        totalJobs: profile.performanceMetrics?.totalJobs || 0,
-        completionRate: profile.performanceMetrics?.completionRate || 0,
-        responseTimeMinutes: profile.performanceMetrics?.responseTimeMinutes || 0,
-        averageResponseTime: profile.performanceMetrics?.averageResponseTime || 0,
-        cancellationRate: profile.performanceMetrics?.cancellationRate || 0,
-        disputeRate: profile.performanceMetrics?.disputeRate || 0,
-        clientRetentionRate: profile.performanceMetrics?.clientRetentionRate || 0
-      },
-      safetyMeasures: {
-        requiresDeposit: profile.safetyMeasures?.requiresDeposit || false,
-        hasInsurance: profile.safetyMeasures?.hasInsurance || false,
-        insuranceProvider: profile.safetyMeasures?.insuranceProvider,
-        insuranceExpiryDate: profile.safetyMeasures?.insuranceExpiryDate,
-        emergencyContactVerified: profile.safetyMeasures?.emergencyContactVerified || false
-      },
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt
-    }));
-
-    const totalPages = Math.ceil(total / limitNum);
-    // Fix: Use ProviderProfileController instead of this
-    ProviderProfileController.sendSuccess(res, "Public provider profiles retrieved successfully", {
-      data: publicProfiles,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      hasNext: pageNum < totalPages,
-      hasPrev: pageNum > 1,
-      totalPages,
-    });
-  } catch (error) {
-    handleError(res, error, "Failed to get public provider profiles");
-  }
-}
-
-/**
- * Search providers by location and service (No authentication required)
- */
-static async searchPublicProviders(
-  req: Request<{}, ApiResponse<Partial<ProviderProfile>[]>, {}, {
-    lat?: string;
-    lng?: string;
-    radius?: string;
-    serviceId?: string;
-    limit?: string;
-  }>,
-  res: Response<ApiResponse<Partial<ProviderProfile>[]>>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { lat, lng, radius = "50", serviceId, limit = "20" } = req.query;
-    
-    const filter: any = {
-      isDeleted: { $ne: true },
-      operationalStatus: ProviderOperationalStatus.ACTIVE,
-      isAvailableForWork: true
-    };
-
-    if (serviceId && validateObjectId(serviceId)) {
-      filter.serviceOfferings = new Types.ObjectId(serviceId);
-    }
-
-    // Add location-based filtering if coordinates provided
-    if (lat && lng) {
-      const latitude = parseFloat(lat);
-      const longitude = parseFloat(lng);
-      const searchRadius = parseInt(radius);
-
-      if (isNaN(latitude) || isNaN(longitude) || isNaN(searchRadius)) {
-        res.status(400).json({ success: false, message: "Invalid location parameters" });
+   * Get public provider profile by ID (No authentication required)
+   * Shows only public information suitable for customers
+   */
+  static async getPublicProviderProfile(
+    req: Request<{ id: string }>,
+    res: Response<ApiResponse<Partial<ProviderProfile>>>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!validateObjectId(id)) {
+        res.status(400).json({ success: false, message: "Invalid provider profile ID" });
         return;
       }
 
-      // Note: This is a simplified radius check. In production, you'd want to use MongoDB's geospatial queries
-      // For now, we'll just include providers who service the area (assuming location is in profileId)
-    }
-
-    const limitNum = Math.min(50, parseInt(limit)); // Max 50 results
-
-    const providers = await ProviderProfileModel.find(filter)
-      .populate([
-        { path: "profileId", select: "bio location" },
-        { path: "serviceOfferings", select: "name description pricing" }
-      ])
-      .select("businessName serviceOfferings workingHours performanceMetrics safetyMeasures isAvailableForWork createdAt updatedAt")
-      .sort({ 
-        'performanceMetrics.averageRating': -1, 
-        'performanceMetrics.totalJobs': -1 
+      const providerProfile = await ProviderProfileModel.findOne({
+        _id: new Types.ObjectId(id),
+        isDeleted: { $ne: true },
+        operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
       })
-      .limit(limitNum)
+      .populate([
+        { path: "profileId", select: "bio location contactDetails" },
+        { path: "serviceOfferings", select: "title description status images slug", options: { slice: { images: 1 } } }
+      ])
+      .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -deletedAt -deletedBy")
       .lean()
       .exec();
 
-    // Map to public profile format
-    const publicProviders: Partial<ProviderProfile>[] = providers.map(provider => ({
-      _id: provider._id,
-      profileId: provider.profileId,
-      businessName: provider.businessName,
-      serviceOfferings: provider.serviceOfferings,
-      workingHours: provider.workingHours,
-      isAvailableForWork: provider.isAvailableForWork,
-      performanceMetrics: {
-        averageRating: provider.performanceMetrics?.averageRating || 0,
-        totalJobs: provider.performanceMetrics?.totalJobs || 0,
-        completionRate: provider.performanceMetrics?.completionRate || 0,
-        responseTimeMinutes: provider.performanceMetrics?.responseTimeMinutes || 0,
-        averageResponseTime: provider.performanceMetrics?.averageResponseTime || 0,
-        cancellationRate: provider.performanceMetrics?.cancellationRate || 0,
-        disputeRate: provider.performanceMetrics?.disputeRate || 0,
-        clientRetentionRate: provider.performanceMetrics?.clientRetentionRate || 0
-      },
-      safetyMeasures: {
-        requiresDeposit: provider.safetyMeasures?.requiresDeposit || false,
-        hasInsurance: provider.safetyMeasures?.hasInsurance || false,
-        insuranceProvider: provider.safetyMeasures?.insuranceProvider,
-        insuranceExpiryDate: provider.safetyMeasures?.insuranceExpiryDate,
-        emergencyContactVerified: provider.safetyMeasures?.emergencyContactVerified || false
-      },
-      createdAt: provider.createdAt,
-      updatedAt: provider.updatedAt
-    }));
+      if (!providerProfile) {
+        res.status(404).json({ success: false, message: "Provider profile not found or not available" });
+        return;
+      }
 
-    // Fix: Use ProviderProfileController instead of this
-    ProviderProfileController.sendSuccess(res, "Public provider search completed successfully", publicProviders);
-  } catch (error) {
-    handleError(res, error, "Failed to search public providers");
+      // Only show public-facing information
+      const publicProfile: Partial<ProviderProfile> = {
+        _id: providerProfile._id,
+        profileId: providerProfile.profileId,
+        businessName: providerProfile.businessName,
+        serviceOfferings: providerProfile.serviceOfferings,
+        workingHours: providerProfile.workingHours,
+        isCurrentlyAvailable: providerProfile.isCurrentlyAvailable,
+        isAlwaysAvailable: providerProfile.isAlwaysAvailable,
+        requireInitialDeposit: providerProfile.requireInitialDeposit,
+        percentageDeposit: providerProfile.percentageDeposit,
+        performanceMetrics: providerProfile.performanceMetrics,
+        createdAt: providerProfile.createdAt,
+        updatedAt: providerProfile.updatedAt
+      };
+
+      ProviderProfileController.sendSuccess(res, "Public provider profile retrieved successfully", publicProfile);
+    } catch (error) {
+      handleError(res, error, "Failed to get public provider profile");
+    }
   }
-}
+
+  /**
+   * Get all public provider profiles with search and filtering (No authentication required)
+   * Shows only active providers with public information
+   */
+  static async getPublicProviderProfiles(
+    req: Request<{}, ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>, {}, 
+      QueryParams & { 
+        serviceId?: string; 
+        minRating?: string;
+        available?: string;
+        search?: string;
+      }>,
+    res: Response<ApiResponse<PaginatedResponse<Partial<ProviderProfile>>>>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { 
+        page = 1, 
+        limit = 12, 
+        sort = "performanceMetrics.averageRating", 
+        order = "desc", 
+        serviceId,
+        minRating,
+        available,
+        search
+      } = req.query;
+
+      // Build filter for public profiles only
+      const filter: any = { 
+        isDeleted: { $ne: true },
+        operationalStatus: { $in: [ProviderOperationalStatus.ACTIVE, ProviderOperationalStatus.PROBATIONARY] }
+      };
+
+      // Apply filters
+      if (serviceId && validateObjectId(serviceId)) {
+        filter.serviceOfferings = new Types.ObjectId(serviceId);
+      }
+      if (minRating) {
+        filter['performanceMetrics.averageRating'] = { $gte: parseFloat(minRating) };
+      }
+      if (available !== undefined) {
+        filter.isCurrentlyAvailable = (available as string) === "true";
+      }
+
+      // Add text search if provided
+      if (search) {
+        filter.$or = [
+          { businessName: { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      // Pagination
+      const pageNum = Math.max(1, parseInt(page as unknown as string));
+      const limitNum = Math.max(1, Math.min(50, parseInt(limit as unknown as string)));
+      const skip = (pageNum - 1) * limitNum;
+      const sortDirection = order === "asc" ? 1 : -1;
+
+      const [profiles, total] = await Promise.all([
+        ProviderProfileModel.find(filter)
+          .populate([
+            { path: "profileId", select: "bio location contactDetails" },
+            { path: "serviceOfferings", select: "title description status images" }
+          ])
+          .select("-riskLevel -lastRiskAssessmentDate -riskAssessedBy -penaltiesCount -lastPenaltyDate -deletedAt -deletedBy")
+          .sort({ [sort]: sortDirection })
+          .skip(skip)
+          .limit(limitNum)
+          .lean()
+          .exec(),
+        ProviderProfileModel.countDocuments(filter),
+      ]);
+
+      // Filter to only public information
+      const publicProfiles: Partial<ProviderProfile>[] = profiles.map(profile => ({
+        _id: profile._id,
+        profileId: profile.profileId,
+        businessName: profile.businessName,
+        serviceOfferings: profile.serviceOfferings,
+        workingHours: profile.workingHours,
+        isCurrentlyAvailable: profile.isCurrentlyAvailable,
+        isAlwaysAvailable: profile.isAlwaysAvailable,
+        requireInitialDeposit: profile.requireInitialDeposit,
+        percentageDeposit: profile.percentageDeposit,
+        performanceMetrics: profile.performanceMetrics,
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt
+      }));
+
+      const totalPages = Math.ceil(total / limitNum);
+      ProviderProfileController.sendSuccess(res, "Public provider profiles retrieved successfully", {
+        data: publicProfiles,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+        totalPages,
+      });
+    } catch (error) {
+      handleError(res, error, "Failed to get public provider profiles");
+    }
+  }
+
+  /**
+   * Search providers by location and service (No authentication required)
+   */
+  static async searchPublicProviders(
+    req: Request<{}, ApiResponse<Partial<ProviderProfile>[]>, {}, {
+      lat?: string;
+      lng?: string;
+      radius?: string;
+      serviceId?: string;
+      limit?: string;
+    }>,
+    res: Response<ApiResponse<Partial<ProviderProfile>[]>>,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { lat, lng, radius = "50", serviceId, limit = "20" } = req.query;
+      
+      const filter: any = {
+        isDeleted: { $ne: true },
+        operationalStatus: ProviderOperationalStatus.ACTIVE,
+        isCurrentlyAvailable: true
+      };
+
+      if (serviceId && validateObjectId(serviceId)) {
+        filter.serviceOfferings = new Types.ObjectId(serviceId);
+      }
+
+      // Add location-based filtering if coordinates provided
+      if (lat && lng) {
+        const latitude = parseFloat(lat);
+        const longitude = parseFloat(lng);
+        const searchRadius = parseInt(radius);
+
+        if (isNaN(latitude) || isNaN(longitude) || isNaN(searchRadius)) {
+          res.status(400).json({ success: false, message: "Invalid location parameters" });
+          return;
+        }
+      }
+
+      const limitNum = Math.min(50, parseInt(limit));
+
+      const providers = await ProviderProfileModel.find(filter)
+        .populate([
+          { path: "profileId", select: "bio location" },
+          { path: "serviceOfferings", select: "title description" }
+        ])
+        .select("businessName serviceOfferings workingHours performanceMetrics isCurrentlyAvailable isAlwaysAvailable requireInitialDeposit percentageDeposit createdAt updatedAt")
+        .sort({ 
+          'performanceMetrics.averageRating': -1, 
+          'performanceMetrics.totalJobs': -1 
+        })
+        .limit(limitNum)
+        .lean()
+        .exec();
+
+      // Map to public profile format
+      const publicProviders: Partial<ProviderProfile>[] = providers.map(provider => ({
+        _id: provider._id,
+        profileId: provider.profileId,
+        businessName: provider.businessName,
+        serviceOfferings: provider.serviceOfferings,
+        workingHours: provider.workingHours,
+        isCurrentlyAvailable: provider.isCurrentlyAvailable,
+        isAlwaysAvailable: provider.isAlwaysAvailable,
+        requireInitialDeposit: provider.requireInitialDeposit,
+        percentageDeposit: provider.percentageDeposit,
+        performanceMetrics: provider.performanceMetrics,
+        createdAt: provider.createdAt,
+        updatedAt: provider.updatedAt
+      }));
+
+      ProviderProfileController.sendSuccess(res, "Public provider search completed successfully", publicProviders);
+    } catch (error) {
+      handleError(res, error, "Failed to search public providers");
+    }
+  }
 }
 
 export default ProviderProfileController;

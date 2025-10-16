@@ -58,11 +58,29 @@ export interface ClientProfileModel
     ClientProfileStatics {}
 
 // Sub-schemas
-const bookingPatternsSchema = new Schema(
+const notificationPreferencesSchema = new Schema(
   {
-    preferredTimeSlots: [{ type: String }],
-    seasonality: [{ type: String }],
-    repeatCustomer: { type: Boolean, default: false },
+    email: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false },
+    push: { type: Boolean, default: true },
+    bookingUpdates: { type: Boolean, default: true },
+    promotions: { type: Boolean, default: false },
+    newsletter: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const privacySettingsSchema = new Schema(
+  {
+    profileVisibility: {
+      type: String,
+      enum: ["public", "private", "connections"],
+      default: "public",
+    },
+    showEmail: { type: Boolean, default: false },
+    showPhone: { type: Boolean, default: false },
+    showLocation: { type: Boolean, default: true },
+    allowMessagesFromNonConnections: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -83,10 +101,9 @@ const clientProfileSchema = new Schema<
   ClientProfileModel
 >(
   {
-    // In your clientProfile.model.ts
     profileId: {
       type: Schema.Types.ObjectId,
-      ref: "Profile", // Change from "UserProfile" to "Profile"
+      ref: "Profile",
       required: [true, "Profile ID is required"],
       index: true,
       unique: true,
@@ -95,7 +112,7 @@ const clientProfileSchema = new Schema<
     preferredServices: [
       {
         type: Schema.Types.ObjectId,
-        ref: "Service", // This should be correct if you have a Service model
+        ref: "Service",
       },
     ],
 
@@ -137,62 +154,6 @@ const clientProfileSchema = new Schema<
       },
     ],
 
-    // Service History and Behavior
-    totalBookings: {
-      type: Number,
-      default: 0,
-      min: [0, "Total bookings cannot be negative"],
-    },
-
-    completedBookings: {
-      type: Number,
-      default: 0,
-      min: [0, "Completed bookings cannot be negative"],
-    },
-
-    cancelledBookings: {
-      type: Number,
-      default: 0,
-      min: [0, "Cancelled bookings cannot be negative"],
-    },
-
-    disputedBookings: {
-      type: Number,
-      default: 0,
-      min: [0, "Disputed bookings cannot be negative"],
-    },
-
-    // Financial
-    totalSpent: {
-      type: Number,
-      default: 0,
-      min: [0, "Total spent cannot be negative"],
-    },
-
-    averageOrderValue: {
-      type: Number,
-      default: 0,
-      min: [0, "Average order value cannot be negative"],
-    },
-
-    paymentMethods: [
-      {
-        type: String,
-        trim: true,
-        enum: {
-          values: [
-            "mobile_money",
-            "bank_transfer",
-            "cash",
-            "credit_card",
-            "paypal",
-            "crypto",
-          ],
-          message: "Invalid payment method: {VALUE}",
-        },
-      },
-    ],
-
     // Ratings and Reviews
     averageRating: {
       type: Number,
@@ -212,18 +173,6 @@ const clientProfileSchema = new Schema<
       min: [0, "Total reviews cannot be negative"],
     },
 
-    // Behavioral Patterns
-    bookingPatterns: bookingPatternsSchema,
-
-    // Communication
-    communicationStyle: {
-      type: String,
-      enum: {
-        values: ["formal", "casual", "direct"],
-        message: "Invalid communication style: {VALUE}",
-      },
-    },
-
     preferredContactMethod: {
       type: String,
       enum: {
@@ -232,9 +181,15 @@ const clientProfileSchema = new Schema<
       },
     },
 
-    responseTime: {
-      type: Number,
-      min: [0, "Response time cannot be negative"],
+    // User-specific settings
+    notificationPreferences: {
+      type: notificationPreferencesSchema,
+      default: () => ({}),
+    },
+
+    privacySettings: {
+      type: privacySettingsSchema,
+      default: () => ({}),
     },
 
     // Special Notes (for providers/admin)
@@ -270,22 +225,6 @@ const clientProfileSchema = new Schema<
     lastActiveDate: {
       type: Date,
       default: Date.now,
-    },
-
-    // Verification Status
-    isPhoneVerified: {
-      type: Boolean,
-      default: false,
-    },
-
-    isEmailVerified: {
-      type: Boolean,
-      default: false,
-    },
-
-    isAddressVerified: {
-      type: Boolean,
-      default: false,
     },
 
     // Moderation
@@ -330,19 +269,13 @@ clientProfileSchema.index({ preferredProviders: 1 });
 clientProfileSchema.index({ isDeleted: 1 });
 clientProfileSchema.index({ loyaltyTier: 1 });
 clientProfileSchema.index({ lastActiveDate: -1 });
-clientProfileSchema.index({ totalSpent: -1 });
 clientProfileSchema.index({ averageRating: -1 });
 clientProfileSchema.index({ memberSince: -1 });
 
 // Compound indexes
 clientProfileSchema.index({ riskLevel: 1, trustScore: -1 });
 clientProfileSchema.index({ isDeleted: 1, riskLevel: 1 });
-clientProfileSchema.index({ loyaltyTier: 1, totalSpent: -1 });
-clientProfileSchema.index({
-  isPhoneVerified: 1,
-  isEmailVerified: 1,
-  isAddressVerified: 1,
-});
+clientProfileSchema.index({ loyaltyTier: 1, lastActiveDate: -1 });
 
 // Pre-save middleware
 clientProfileSchema.pre("save", function (next) {
@@ -354,20 +287,9 @@ clientProfileSchema.pre("save", function (next) {
   this.lastActiveDate = new Date();
 
   // Auto-calculate risk level if not manually set
-  if (
-    this.isModified("trustScore") ||
-    this.isModified("warningsCount") ||
-    this.isModified("disputedBookings") ||
-    this.isModified("cancelledBookings")
-  ) {
+  if (this.isModified("trustScore") || this.isModified("warningsCount")) {
     this.riskLevel = this.calculateRiskLevel();
   }
-
-  // Calculate average order value
-  if (this.totalBookings > 0) {
-    this.averageOrderValue = this.totalSpent / this.totalBookings;
-  }
-
   next();
 });
 
@@ -393,26 +315,10 @@ clientProfileSchema.methods.calculateRiskLevel = function (): RiskLevel {
   // Warnings factor
   riskScore += this.warningsCount * 10;
 
-  // Booking behavior factor
-  if (this.totalBookings > 0) {
-    const disputeRate = this.disputedBookings / this.totalBookings;
-    const cancelRate = this.cancelledBookings / this.totalBookings;
-
-    if (disputeRate > 0.2) riskScore += 25;
-    else if (disputeRate > 0.1) riskScore += 15;
-
-    if (cancelRate > 0.3) riskScore += 20;
-    else if (cancelRate > 0.15) riskScore += 10;
+  // Risk factors consideration
+  if (this.riskFactors && this.riskFactors.length > 0) {
+    riskScore += this.riskFactors.length * 5;
   }
-
-  // Verification factor
-  const verificationCount = [
-    this.isPhoneVerified,
-    this.isEmailVerified,
-    this.isAddressVerified,
-  ].filter(Boolean).length;
-  if (verificationCount === 0) riskScore += 20;
-  else if (verificationCount === 1) riskScore += 10;
 
   // Determine risk level
   if (riskScore >= 60) return RiskLevel.CRITICAL;
@@ -453,7 +359,7 @@ clientProfileSchema.methods.addPreferredService = function (
   }
 
   const existingService = this.preferredServices.find(
-    (id) => id.toString() === serviceId.toString()
+    (id: Types.ObjectId) => id.toString() === serviceId.toString()
   );
 
   if (!existingService) {
@@ -467,7 +373,7 @@ clientProfileSchema.methods.removePreferredService = function (
 ): Promise<ClientProfileDocument> {
   if (this.preferredServices) {
     this.preferredServices = this.preferredServices.filter(
-      (id) => id.toString() !== serviceId.toString()
+      (id: Types.ObjectId) => id.toString() !== serviceId.toString()
     );
   }
   return this.save();
@@ -481,7 +387,7 @@ clientProfileSchema.methods.addPreferredProvider = function (
   }
 
   const existingProvider = this.preferredProviders.find(
-    (id) => id.toString() === providerId.toString()
+    (id: Types.ObjectId) => id.toString() === providerId.toString()
   );
 
   if (!existingProvider) {
@@ -495,7 +401,7 @@ clientProfileSchema.methods.removePreferredProvider = function (
 ): Promise<ClientProfileDocument> {
   if (this.preferredProviders) {
     this.preferredProviders = this.preferredProviders.filter(
-      (id) => id.toString() !== providerId.toString()
+      (id: Types.ObjectId) => id.toString() !== providerId.toString()
     );
   }
   return this.save();
@@ -559,27 +465,10 @@ clientProfileSchema.statics.getActiveClients = function (): Query<
 
 // Virtual for populated profile data
 clientProfileSchema.virtual("profile", {
-  ref: "UserProfile",
+  ref: "Profile",
   localField: "profileId",
   foreignField: "_id",
   justOne: true,
-});
-
-// Virtual for completion rate
-clientProfileSchema.virtual("completionRate").get(function () {
-  if (this.totalBookings === 0) return 0;
-  return (this.completedBookings / this.totalBookings) * 100;
-});
-
-// Virtual for dispute rate
-clientProfileSchema.virtual("disputeRate").get(function () {
-  if (this.totalBookings === 0) return 0;
-  return (this.disputedBookings / this.totalBookings) * 100;
-});
-
-// Virtual for verification status
-clientProfileSchema.virtual("isFullyVerified").get(function () {
-  return this.isPhoneVerified && this.isEmailVerified && this.isAddressVerified;
 });
 
 // Ensure virtual fields are serialized

@@ -165,13 +165,26 @@ export class ServiceController {
     return 0;
   }
 
-  // NEW: Method to populate service providers dynamically
-  private async populateServiceProviders(services: any[]): Promise<any[]> {
+// Updated method to include profile image when populating providers
+// Debug version to identify the issue
+private async populateServiceProviders(services: any[]): Promise<any[]> {
   if (!services || services.length === 0) return services;
 
   const serviceIds = services.map(service => service._id);
   
-  // Use aggregation for better performance
+  // First, let's check what ProviderProfiles we have
+  const providerProfiles = await ProviderProfileModel.find({
+    serviceOfferings: { $in: serviceIds },
+    isDeleted: { $ne: true }
+  }).select('_id profileId businessName').lean();
+  
+  
+  // Check if profileIds exist
+  const profileIds = providerProfiles
+    .map(p => p.profileId)
+    .filter(id => id != null);
+  
+  // Aggregated for better performance
   const providersByService = await ProviderProfileModel.aggregate([
     {
       $match: {
@@ -181,10 +194,16 @@ export class ServiceController {
     },
     {
       $lookup: {
-        from: 'ProviderProfile',
+        from: 'profiles', // Collection name for Profile model
         localField: 'profileId',
-        foreignField: '_id',
+        foreignField: '_id', // ProviderProfile.profileId references Profile._id
         as: 'profileDetails'
+      }
+    },
+    {
+      $unwind: {
+        path: '$profileDetails',
+        preserveNullAndEmptyArrays: true // Handle cases where profile might not exist
       }
     },
     {
@@ -200,7 +219,18 @@ export class ServiceController {
             providerContactInfo: '$providerContactInfo',
             performanceMetrics: '$performanceMetrics',
             operationalStatus: '$operationalStatus',
-            profileId: { $arrayElemAt: ['$profileDetails', 0] }
+            // Debug: Include the raw profileId to see if it exists
+            profileId: '$profileId',
+            // Include profile data
+            profile: {
+              _id: '$profileDetails._id',
+              userId: '$profileDetails.userId',
+              profileImage: '$profileDetails.profilePicture', // Note: it's profilePicture in the model
+              bio: '$profileDetails.bio',
+              location: '$profileDetails.location',
+              verificationStatus: '$profileDetails.verificationStatus',
+              completeness: '$profileDetails.completeness'
+            }
           }
         },
         providerCount: { $sum: 1 }
@@ -427,7 +457,7 @@ export class ServiceController {
       }
 
       let query = ServiceModel.findOne(filter)
-        .populate("category", "name slug description")
+        .populate("category", "name slug _id description")
         .populate("submittedBy", "name email")
         .populate("approvedBy", "name email")
         .populate("rejectedBy", "name email")

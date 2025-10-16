@@ -1,18 +1,14 @@
 // types/provider-profile.types.ts
 import { Types } from "mongoose";
-import {
-  BaseEntity,
-  SoftDeletable,
-  FileReference,
-  ProviderContactInfo,
-  ProviderOperationalStatus,
-  RiskLevel,
-} from "./base.types";
+import { BaseEntity, SoftDeletable, ProviderOperationalStatus, RiskLevel } from "./base.types";
+
 
 export interface ProviderProfile extends BaseEntity, SoftDeletable {
   profileId: Types.ObjectId;
-
-  providerContactInfo: ProviderContactInfo;
+  providerContactInfo: {
+    businessContact?: string;
+    businessEmail?: string;
+  };
 
   operationalStatus: ProviderOperationalStatus;
   serviceOfferings: Types.ObjectId[];
@@ -21,35 +17,14 @@ export interface ProviderProfile extends BaseEntity, SoftDeletable {
     {
       start: string;
       end: string;
-      isAvailable: boolean;
     }
   >;
 
-  isAvailableForWork: boolean;
+  isCurrentlyAvailable: boolean;
   isAlwaysAvailable: boolean;
-
   businessName?: string;
-  businessRegistration?: {
-    registrationNumber: string;
-    registrationDocument: FileReference;
-  };
-
-  insurance?: {
-    provider: string;
-    policyNumber: string;
-    expiryDate: Date;
-    document: FileReference;
-  };
-
-  safetyMeasures: {
-    requiresDeposit: boolean;
-    depositAmount?: number;
-    hasInsurance: boolean;
-    insuranceProvider?: string;
-    insuranceExpiryDate?: Date;
-    emergencyContactVerified: boolean;
-  };
-
+  requireInitialDeposit: boolean;
+  percentageDeposit?: number;
   performanceMetrics: {
     completionRate: number;
     averageRating: number;
@@ -82,7 +57,3 @@ export interface ProviderProfileResponse {
   providerProfile?: Partial<ProviderProfile>;
   error?: string;
 }
-
-// export interface ProviderProfileWithServices extends ProviderProfile {
-//   serviceOfferings: Pick<Service, "_id" | "title" | "categoryId" | "basePrice">[];
-// }

@@ -51,12 +51,6 @@ export interface SocialMediaHandle {
 export interface ContactDetails {
   primaryContact: string;
   secondaryContact?: string;
-  businessEmail?: string;
-}
-
-export interface ProviderContactInfo extends ContactDetails {
-  emergencyContact?: string;
-  businessEmail?: string;
 }
 
 export interface IdDetails {
@@ -240,4 +234,3 @@ export interface ServiceUser extends BaseEntity, SoftDeletable {
   moderationNotes?: string;
   warningsCount: number;
 }
-

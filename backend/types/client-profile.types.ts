@@ -1,4 +1,3 @@
-// types/client-profile.types.ts
 import { Types } from "mongoose";
 import {
   BaseEntity,
@@ -12,40 +11,22 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
   profileId: Types.ObjectId; // References UserProfile._id
 
   // Trust and Risk Management
-  trustScore: number; // 0-100
+  trustScore: number; // 0–100
   riskLevel: RiskLevel;
   riskFactors?: string[];
 
   // Preferences
   preferredServices: Types.ObjectId[];
   preferredProviders: Types.ObjectId[];
+  preferredContactMethod?: "phone" | "email" | "in-app";
 
-  // Service History and Behavior
-  totalBookings: number;
-  completedBookings: number;
-  cancelledBookings: number;
-  disputedBookings: number;
-
-  // Financial
-  totalSpent: number;
-  averageOrderValue: number;
-  paymentMethods?: string[];
+  // User-specific settings
+  notificationPreferences: NotificationPreferences;
+  privacySettings: PrivacySettings;
 
   // Ratings and Reviews
   averageRating?: number;
   totalReviews: number;
-
-  // Behavioral Patterns
-  bookingPatterns?: {
-    preferredTimeSlots?: string[];
-    seasonality?: string[];
-    repeatCustomer: boolean;
-  };
-
-  // Communication
-  communicationStyle?: "formal" | "casual" | "direct";
-  preferredContactMethod?: "phone" | "email" | "in-app";
-  responseTime?: number; // Average response time in minutes
 
   // Special Notes (for providers/admin)
   notes?: string[];
@@ -55,11 +36,6 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
   loyaltyTier?: "bronze" | "silver" | "gold" | "platinum";
   memberSince?: Date;
   lastActiveDate?: Date;
-
-  // Verification Status
-  isPhoneVerified: boolean;
-  isEmailVerified: boolean;
-  isAddressVerified: boolean;
 
   // Moderation
   warningsCount: number;
@@ -73,21 +49,24 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
 
 // Request/Response Types
 export interface CreateClientProfileRequestBody {
-  // Optional initial data - most fields will be calculated/set by system
+  // Optional initial data – most fields will be system-set
   preferredServices?: string[];
   preferredProviders?: string[];
-  communicationStyle?: "formal" | "casual" | "direct";
-  preferredContactMethod?: "phone" | "email" | "in-app";
+  preferredContactMethod?: "phone" | "email" | "any";
   notes?: string[];
+  notificationPreferences?: Partial<NotificationPreferences>;
+  privacySettings?: Partial<PrivacySettings>;
 }
 
 export interface UpdateClientProfileRequestBody {
   preferredServices?: string[];
   preferredProviders?: string[];
-  communicationStyle?: "formal" | "casual" | "direct";
-  preferredContactMethod?: "phone" | "email" | "in-app";
+  preferredContactMethod?: "phone" | "email" | "any";
   notes?: string[];
-  // Admin-only fields (should be restricted in middleware)
+  notificationPreferences?: Partial<NotificationPreferences>;
+  privacySettings?: Partial<PrivacySettings>;
+
+  // Admin-only fields (restricted in middleware)
   trustScore?: number;
   riskLevel?: RiskLevel;
   riskFactors?: string[];
@@ -148,6 +127,6 @@ export interface ClientAnalytics {
   riskDistribution: Record<RiskLevel, number>;
   loyaltyDistribution: Record<string, number>;
   averageTrustScore: number;
-  topSpenders: ClientProfile[];
   recentlyJoined: ClientProfile[];
 }
+

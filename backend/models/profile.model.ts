@@ -241,15 +241,6 @@ const contactDetailsSchema = new Schema<ContactDetails>(
         "Please provide a valid Ghana phone number",
       ],
     },
-    businessEmail: {
-      type: String,
-      trim: true,
-      lowercase: true,
-      match: [
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-        "Please provide a valid email address",
-      ],
-    },
   },
   { _id: false }
 );
@@ -524,7 +515,6 @@ function calculateCompleteness(this: IUserProfileDocument): number {
     { field: this.location?.region, weight: 5 },
     { field: this.location?.city, weight: 5 },
     { field: this.contactDetails?.secondaryContact, weight: 5 },
-    { field: this.contactDetails?.businessEmail, weight: 5 },
     {
       field: this.socialMediaHandles && this.socialMediaHandles.length > 0,
       weight: 5,

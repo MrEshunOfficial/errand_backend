@@ -6,7 +6,6 @@ import {
   CategoryWithServices,
   ModerationStatus,
   ServiceStatus,
-  SystemRole,
 } from "../types";
 import { ServiceModel } from "../models/service.model";
 
