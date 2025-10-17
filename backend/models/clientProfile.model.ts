@@ -176,7 +176,7 @@ const clientProfileSchema = new Schema<
     preferredContactMethod: {
       type: String,
       enum: {
-        values: ["phone", "email", "in-app"],
+        values: ["email", "phone", "sms", "whatsapp", "all"],
         message: "Invalid contact method: {VALUE}",
       },
     },

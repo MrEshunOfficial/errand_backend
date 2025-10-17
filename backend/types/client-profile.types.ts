@@ -18,8 +18,7 @@ export interface ClientProfile extends BaseEntity, SoftDeletable {
   // Preferences
   preferredServices: Types.ObjectId[];
   preferredProviders: Types.ObjectId[];
-  preferredContactMethod?: "phone" | "email" | "in-app";
-
+  preferredContactMethod?: "email" | "phone" | "sms" | "whatsapp" | "all";
   // User-specific settings
   notificationPreferences: NotificationPreferences;
   privacySettings: PrivacySettings;
@@ -129,4 +128,3 @@ export interface ClientAnalytics {
   averageTrustScore: number;
   recentlyJoined: ClientProfile[];
 }
-

@@ -29,10 +29,16 @@ export class ClientProfileController {
   }
 
   // Helper method to handle authentication
-  private static handleAuth(req: AuthenticatedRequest, res: Response): string | null {
+  private static handleAuth(
+    req: AuthenticatedRequest,
+    res: Response
+  ): string | null {
     const userId = ClientProfileController.getUserId(req);
     if (!userId) {
-      res.status(401).json({ message: "Authentication required", error: "User not authenticated" });
+      res.status(401).json({
+        message: "Authentication required",
+        error: "User not authenticated",
+      });
       return null;
     }
     return userId;
@@ -50,16 +56,23 @@ export class ClientProfileController {
   private static async populateProfile(profile: any): Promise<void> {
     try {
       await profile.populate([
-        { 
-          path: "profileId", 
-          select: "userId role bio location contactDetails profilePicture socialMediaHandles createdAt",
+        {
+          path: "profileId",
+          select:
+            "userId role bio location contactDetails profilePicture socialMediaHandles createdAt",
           populate: {
             path: "userId",
-            select: "name email isActive isVerified createdAt"
-          }
+            select: "name email isActive isVerified createdAt",
+          },
         },
-        { path: "preferredServices", select: "title description categoryId" },
-        { path: "preferredProviders", select: "userId businessName contactInfo" },
+        {
+          path: "preferredServices",
+          select: "title description slug categoryId",
+        },
+        {
+          path: "preferredProviders",
+          select: "userId businessName contactInfo",
+        },
       ]);
     } catch (error) {
       console.error("Population error:", error);
@@ -67,25 +80,39 @@ export class ClientProfileController {
   }
 
   // Helper method to handle errors
-  private static handleError(error: any, res: Response, defaultMessage: string): void {
+  private static handleError(
+    error: any,
+    res: Response,
+    defaultMessage: string
+  ): void {
     console.error(`Error: ${defaultMessage}`, error);
 
     if (error instanceof Error) {
       if (error.name === "ValidationError") {
-        res.status(400).json({ message: "Validation error", error: error.message });
+        res
+          .status(400)
+          .json({ message: "Validation error", error: error.message });
         return;
       }
       if (error.name === "MongoServerError" && (error as any).code === 11000) {
-        res.status(409).json({ message: "Client profile already exists", error: "Duplicate profile ID" });
+        res.status(409).json({
+          message: "Client profile already exists",
+          error: "Duplicate profile ID",
+        });
         return;
       }
       if (error.name === "CastError") {
-        res.status(400).json({ message: "Invalid ID format", error: "Invalid ObjectId format" });
+        res.status(400).json({
+          message: "Invalid ID format",
+          error: "Invalid ObjectId format",
+        });
         return;
       }
     }
 
-    res.status(500).json({ message: defaultMessage, error: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: defaultMessage, error: "Internal server error" });
   }
 
   // Helper method to calculate risk level from trust score
@@ -97,7 +124,8 @@ export class ClientProfileController {
   }
 
   static async createClientProfile(
-    req: AuthenticatedRequest & Request<{}, ClientProfileResponse, CreateClientProfileRequestBody>,
+    req: AuthenticatedRequest &
+      Request<{}, ClientProfileResponse, CreateClientProfileRequestBody>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
     try {
@@ -106,7 +134,11 @@ export class ClientProfileController {
 
       const userProfile = await ClientProfileController.findUserProfile(userId);
       if (!userProfile) {
-        res.status(404).json({ message: "User profile not found. Please create a user profile first.", error: "Profile not found" });
+        res.status(404).json({
+          message:
+            "User profile not found. Please create a user profile first.",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -116,7 +148,10 @@ export class ClientProfileController {
       }).exec();
 
       if (existingProfile) {
-        res.status(409).json({ message: "Client profile already exists for this user", error: "Profile already exists" });
+        res.status(409).json({
+          message: "Client profile already exists for this user",
+          error: "Profile already exists",
+        });
         return;
       }
 
@@ -142,18 +177,28 @@ export class ClientProfileController {
         clientProfile: savedProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to create client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to create client profile"
+      );
     }
   }
 
-  static async getMyClientProfile(req: AuthenticatedRequest, res: Response<ClientProfileResponse>): Promise<void> {
+  static async getMyClientProfile(
+    req: AuthenticatedRequest,
+    res: Response<ClientProfileResponse>
+  ): Promise<void> {
     try {
       const userId = ClientProfileController.handleAuth(req, res);
       if (!userId) return;
 
       const userProfile = await ClientProfileController.findUserProfile(userId);
       if (!userProfile) {
-        res.status(404).json({ message: "User profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "User profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -163,7 +208,10 @@ export class ClientProfileController {
       }).exec();
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -174,7 +222,11 @@ export class ClientProfileController {
         clientProfile: clientProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to retrieve client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to retrieve client profile"
+      );
     }
   }
 
@@ -186,7 +238,10 @@ export class ClientProfileController {
       const { profileId } = req.params;
 
       if (!ClientProfileController.validateObjectId(profileId)) {
-        res.status(400).json({ message: "Invalid profile ID format", error: "Invalid ObjectId" });
+        res.status(400).json({
+          message: "Invalid profile ID format",
+          error: "Invalid ObjectId",
+        });
         return;
       }
 
@@ -196,7 +251,10 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -207,7 +265,11 @@ export class ClientProfileController {
         clientProfile: clientProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to retrieve client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to retrieve client profile"
+      );
     }
   }
 
@@ -219,7 +281,10 @@ export class ClientProfileController {
       const { id } = req.params;
 
       if (!ClientProfileController.validateObjectId(id)) {
-        res.status(400).json({ message: "Invalid client profile ID format", error: "Invalid ObjectId" });
+        res.status(400).json({
+          message: "Invalid client profile ID format",
+          error: "Invalid ObjectId",
+        });
         return;
       }
 
@@ -229,7 +294,10 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -240,12 +308,17 @@ export class ClientProfileController {
         clientProfile: clientProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to retrieve client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to retrieve client profile"
+      );
     }
   }
 
   static async updateMyClientProfile(
-    req: AuthenticatedRequest & Request<{}, ClientProfileResponse, UpdateClientProfileRequestBody>,
+    req: AuthenticatedRequest &
+      Request<{}, ClientProfileResponse, UpdateClientProfileRequestBody>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
     try {
@@ -254,7 +327,10 @@ export class ClientProfileController {
 
       const userProfile = await ClientProfileController.findUserProfile(userId);
       if (!userProfile) {
-        res.status(404).json({ message: "User profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "User profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -264,19 +340,30 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
       // Filter out admin-only fields
       const adminOnlyFields = [
-        'profileId', 'trustScore', 'riskLevel', 'riskFactors', 'flags', 
-        'loyaltyTier', 'warningsCount', 'suspensionHistory', 'memberSince',
-        'totalReviews', 'averageRating'
+        "profileId",
+        "trustScore",
+        "riskLevel",
+        "riskFactors",
+        "flags",
+        "loyaltyTier",
+        "warningsCount",
+        "suspensionHistory",
+        "memberSince",
+        "totalReviews",
+        "averageRating",
       ];
-      
+
       const userAllowedUpdates = Object.keys(req.body)
-        .filter(key => !adminOnlyFields.includes(key))
+        .filter((key) => !adminOnlyFields.includes(key))
         .reduce((obj, key) => {
           obj[key] = req.body[key];
           return obj;
@@ -293,19 +380,30 @@ export class ClientProfileController {
         clientProfile: updatedProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to update client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to update client profile"
+      );
     }
   }
 
   static async updateClientProfile(
-    req: Request<{ id: string }, ClientProfileResponse, UpdateClientProfileRequestBody>,
+    req: Request<
+      { id: string },
+      ClientProfileResponse,
+      UpdateClientProfileRequestBody
+    >,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
     try {
       const { id } = req.params;
 
       if (!ClientProfileController.validateObjectId(id)) {
-        res.status(400).json({ message: "Invalid client profile ID format", error: "Invalid ObjectId" });
+        res.status(400).json({
+          message: "Invalid client profile ID format",
+          error: "Invalid ObjectId",
+        });
         return;
       }
 
@@ -315,7 +413,10 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
@@ -328,17 +429,27 @@ export class ClientProfileController {
         clientProfile: updatedProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to update client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to update client profile"
+      );
     }
   }
 
-  static async deleteClientProfile(req: Request<{ id: string }>, res: Response<ClientProfileResponse>): Promise<void> {
+  static async deleteClientProfile(
+    req: Request<{ id: string }>,
+    res: Response<ClientProfileResponse>
+  ): Promise<void> {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id || (req as any).user?.userId;
 
       if (!ClientProfileController.validateObjectId(id)) {
-        res.status(400).json({ message: "Invalid client profile ID format", error: "Invalid ObjectId" });
+        res.status(400).json({
+          message: "Invalid client profile ID format",
+          error: "Invalid ObjectId",
+        });
         return;
       }
 
@@ -348,27 +459,44 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
       clientProfile.isDeleted = true;
       clientProfile.deletedAt = new Date();
-      if (userId) clientProfile.deletedBy = new Types.ObjectId(userId.toString());
+      if (userId)
+        clientProfile.deletedBy = new Types.ObjectId(userId.toString());
 
       await clientProfile.save();
       res.status(200).json({ message: "Client profile deleted successfully" });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to delete client profile");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to delete client profile"
+      );
     }
   }
 
-  static async getAllClientProfiles(req: Request, res: Response): Promise<void> {
+  static async getAllClientProfiles(
+    req: Request,
+    res: Response
+  ): Promise<void> {
     try {
       const {
-        page = 1, limit = 10, riskLevel, minTrustScore, maxTrustScore,
-        loyaltyTier, hasActiveWarnings,
-        sortBy = "createdAt", sortOrder = "desc"
+        page = 1,
+        limit = 10,
+        riskLevel,
+        minTrustScore,
+        maxTrustScore,
+        loyaltyTier,
+        hasActiveWarnings,
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       const pageNum = Math.max(1, parseInt(page as string));
@@ -378,14 +506,19 @@ export class ClientProfileController {
       const filter: any = { isDeleted: { $ne: true } };
 
       // Apply filters
-      if (riskLevel && Object.values(RiskLevel).includes(riskLevel as RiskLevel)) {
+      if (
+        riskLevel &&
+        Object.values(RiskLevel).includes(riskLevel as RiskLevel)
+      ) {
         filter.riskLevel = riskLevel;
       }
-      
+
       if (minTrustScore || maxTrustScore) {
         filter.trustScore = {};
-        if (minTrustScore) filter.trustScore.$gte = parseFloat(minTrustScore as string);
-        if (maxTrustScore) filter.trustScore.$lte = parseFloat(maxTrustScore as string);
+        if (minTrustScore)
+          filter.trustScore.$gte = parseFloat(minTrustScore as string);
+        if (maxTrustScore)
+          filter.trustScore.$lte = parseFloat(maxTrustScore as string);
       }
 
       if (loyaltyTier) filter.loyaltyTier = loyaltyTier;
@@ -398,16 +531,23 @@ export class ClientProfileController {
       const [profiles, totalCount] = await Promise.all([
         ClientProfileModel.find(filter)
           .populate([
-            { 
-              path: "profileId", 
-              select: "userId role bio location contactDetails profilePicture verificationStatus",
+            {
+              path: "profileId",
+              select:
+                "userId role bio location contactDetails profilePicture verificationStatus",
               populate: {
                 path: "userId",
-                select: "firstName lastName email phoneNumber isActive"
-              }
+                select: "firstName lastName email phoneNumber isActive",
+              },
             },
-            { path: "preferredServices", select: "title description categoryId" },
-            { path: "preferredProviders", select: "userId businessName contactInfo" }
+            {
+              path: "preferredServices",
+              select: "title description categoryId",
+            },
+            {
+              path: "preferredProviders",
+              select: "userId businessName contactInfo",
+            },
           ])
           .sort(sort)
           .skip(skip)
@@ -433,7 +573,11 @@ export class ClientProfileController {
         },
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to retrieve client profiles");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to retrieve client profiles"
+      );
     }
   }
 
@@ -446,12 +590,22 @@ export class ClientProfileController {
       const { trustScore } = req.body;
 
       if (!ClientProfileController.validateObjectId(id)) {
-        res.status(400).json({ message: "Invalid client profile ID format", error: "Invalid ObjectId" });
+        res.status(400).json({
+          message: "Invalid client profile ID format",
+          error: "Invalid ObjectId",
+        });
         return;
       }
 
-      if (typeof trustScore !== "number" || trustScore < 0 || trustScore > 100) {
-        res.status(400).json({ message: "Trust score must be a number between 0 and 100", error: "Invalid trust score" });
+      if (
+        typeof trustScore !== "number" ||
+        trustScore < 0 ||
+        trustScore > 100
+      ) {
+        res.status(400).json({
+          message: "Trust score must be a number between 0 and 100",
+          error: "Invalid trust score",
+        });
         return;
       }
 
@@ -461,12 +615,16 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
       clientProfile.trustScore = trustScore;
-      clientProfile.riskLevel = ClientProfileController.calculateRiskLevel(trustScore);
+      clientProfile.riskLevel =
+        ClientProfileController.calculateRiskLevel(trustScore);
 
       await clientProfile.save();
       await ClientProfileController.populateProfile(clientProfile);
@@ -476,23 +634,38 @@ export class ClientProfileController {
         clientProfile: clientProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to update trust score");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to update trust score"
+      );
     }
   }
 
   // Generic method to handle preferred items (services/providers)
   private static async updatePreferredItem(
-    req: Request<{ id: string }, ClientProfileResponse, { serviceId?: string; providerId?: string }>,
+    req: Request<
+      { id: string },
+      ClientProfileResponse,
+      { serviceId?: string; providerId?: string }
+    >,
     res: Response<ClientProfileResponse>,
-    action: 'add' | 'remove',
-    itemType: 'service' | 'provider'
+    action: "add" | "remove",
+    itemType: "service" | "provider"
   ): Promise<void> {
     try {
       const { id } = req.params;
       const itemId = req.body.serviceId || req.body.providerId;
 
-      if (!id || !itemId || !ClientProfileController.validateObjectId(id) || !ClientProfileController.validateObjectId(itemId)) {
-        res.status(400).json({ message: "Invalid ID format", error: "Invalid ObjectId" });
+      if (
+        !id ||
+        !itemId ||
+        !ClientProfileController.validateObjectId(id) ||
+        !ClientProfileController.validateObjectId(itemId)
+      ) {
+        res
+          .status(400)
+          .json({ message: "Invalid ID format", error: "Invalid ObjectId" });
         return;
       }
 
@@ -502,15 +675,23 @@ export class ClientProfileController {
       });
 
       if (!clientProfile) {
-        res.status(404).json({ message: "Client profile not found", error: "Profile not found" });
+        res.status(404).json({
+          message: "Client profile not found",
+          error: "Profile not found",
+        });
         return;
       }
 
       const itemObjectId = new Types.ObjectId(itemId);
-      const arrayField = itemType === 'service' ? 'preferredServices' : 'preferredProviders';
-      
-      if (action === 'add') {
-        if (!clientProfile[arrayField].some((item: any) => item.equals(itemObjectId))) {
+      const arrayField =
+        itemType === "service" ? "preferredServices" : "preferredProviders";
+
+      if (action === "add") {
+        if (
+          !clientProfile[arrayField].some((item: any) =>
+            item.equals(itemObjectId)
+          )
+        ) {
           clientProfile[arrayField].push(itemObjectId);
         }
       } else {
@@ -523,11 +704,17 @@ export class ClientProfileController {
       await ClientProfileController.populateProfile(clientProfile);
 
       res.status(200).json({
-        message: `Preferred ${itemType} ${action}${action === 'add' ? 'ed' : 'd'} successfully`,
+        message: `Preferred ${itemType} ${action}${
+          action === "add" ? "ed" : "d"
+        } successfully`,
         clientProfile: clientProfile.toObject(),
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, `Failed to ${action} preferred ${itemType}`);
+      ClientProfileController.handleError(
+        error,
+        res,
+        `Failed to ${action} preferred ${itemType}`
+      );
     }
   }
 
@@ -535,33 +722,58 @@ export class ClientProfileController {
     req: Request<{ id: string }, ClientProfileResponse, { serviceId: string }>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
-    await ClientProfileController.updatePreferredItem(req, res, 'add', 'service');
+    await ClientProfileController.updatePreferredItem(
+      req,
+      res,
+      "add",
+      "service"
+    );
   }
 
   static async removePreferredService(
     req: Request<{ id: string }, ClientProfileResponse, { serviceId: string }>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
-    await ClientProfileController.updatePreferredItem(req, res, 'remove', 'service');
+    await ClientProfileController.updatePreferredItem(
+      req,
+      res,
+      "remove",
+      "service"
+    );
   }
 
   static async addPreferredProvider(
     req: Request<{ id: string }, ClientProfileResponse, { providerId: string }>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
-    await ClientProfileController.updatePreferredItem(req, res, 'add', 'provider');
+    await ClientProfileController.updatePreferredItem(
+      req,
+      res,
+      "add",
+      "provider"
+    );
   }
 
   static async removePreferredProvider(
     req: Request<{ id: string }, ClientProfileResponse, { providerId: string }>,
     res: Response<ClientProfileResponse>
   ): Promise<void> {
-    await ClientProfileController.updatePreferredItem(req, res, 'remove', 'provider');
+    await ClientProfileController.updatePreferredItem(
+      req,
+      res,
+      "remove",
+      "provider"
+    );
   }
 
   static async getHighRiskClients(req: Request, res: Response): Promise<void> {
     try {
-      const { page = 1, limit = 10, sortBy = "trustScore", sortOrder = "asc" } = req.query;
+      const {
+        page = 1,
+        limit = 10,
+        sortBy = "trustScore",
+        sortOrder = "asc",
+      } = req.query;
 
       const pageNum = Math.max(1, parseInt(page as string));
       const limitNum = Math.max(1, Math.min(100, parseInt(limit as string)));
@@ -575,14 +787,15 @@ export class ClientProfileController {
           .populate([
             {
               path: "profileId",
-              select: "userId role bio location contactDetails verificationStatus",
+              select:
+                "userId role bio location contactDetails verificationStatus",
               populate: {
                 path: "userId",
-                select: "firstName lastName email phoneNumber"
-              }
+                select: "firstName lastName email phoneNumber",
+              },
             },
             { path: "preferredServices", select: "title description" },
-            { path: "preferredProviders", select: "businessName" }
+            { path: "preferredProviders", select: "businessName" },
           ])
           .sort(sort)
           .skip(skip)
@@ -608,7 +821,11 @@ export class ClientProfileController {
         },
       });
     } catch (error) {
-      ClientProfileController.handleError(error, res, "Failed to retrieve high-risk clients");
+      ClientProfileController.handleError(
+        error,
+        res,
+        "Failed to retrieve high-risk clients"
+      );
     }
   }
 
@@ -632,30 +849,7 @@ export class ClientProfileController {
         _id: new Types.ObjectId(id),
         isDeleted: { $ne: true },
         riskLevel: { $in: [RiskLevel.LOW, RiskLevel.MEDIUM] },
-      })
-        .populate([
-          {
-            path: "profileId",
-            select: "bio location userId",
-            match: { isDeleted: { $ne: true } },
-            populate: {
-              path: "userId",
-              select: "firstName lastName"
-            }
-          },
-          {
-            path: "preferredServices",
-            select: "name title description",
-            match: { isDeleted: { $ne: true } },
-          },
-        ])
-        .select(`
-          profileId preferredServices averageRating totalReviews 
-          loyaltyTier memberSince preferredContactMethod
-          createdAt updatedAt
-        `)
-        .lean()
-        .exec();
+      }).exec();
 
       if (!clientProfile) {
         res.status(404).json({
@@ -664,16 +858,21 @@ export class ClientProfileController {
         });
         return;
       }
+      await ClientProfileController.populateProfile(clientProfile);
 
       const publicProfile: Partial<ClientProfile> = {
         _id: clientProfile._id,
         profileId: clientProfile.profileId,
         preferredServices: clientProfile.preferredServices || [],
+        preferredProviders: clientProfile.preferredProviders || [],
         averageRating: clientProfile.averageRating || undefined,
         totalReviews: clientProfile.totalReviews || 0,
         loyaltyTier: clientProfile.loyaltyTier || "bronze",
         memberSince: clientProfile.memberSince,
-        preferredContactMethod: clientProfile.preferredContactMethod || undefined,
+        preferredContactMethod:
+          clientProfile.preferredContactMethod || undefined,
+        trustScore: clientProfile.trustScore || undefined,
+        warningsCount: clientProfile.warningsCount || 0,
         createdAt: clientProfile.createdAt,
         updatedAt: clientProfile.updatedAt,
       };
@@ -690,13 +889,19 @@ export class ClientProfileController {
         res.status(500).json({
           success: false,
           message: "Failed to retrieve public client profile",
-          error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
+          error:
+            process.env.NODE_ENV === "development"
+              ? error.message
+              : "Internal server error",
         });
       } else {
         res.status(500).json({
           success: false,
           message: "Failed to retrieve public client profile",
-          error: process.env.NODE_ENV === "development" ? String(error) : "Internal server error",
+          error:
+            process.env.NODE_ENV === "development"
+              ? String(error)
+              : "Internal server error",
         });
       }
     }
@@ -730,8 +935,8 @@ export class ClientProfileController {
             match: { isDeleted: { $ne: true } },
             populate: {
               path: "userId",
-              select: "firstName lastName"
-            }
+              select: "name email",
+            },
           },
           {
             path: "preferredServices",
@@ -739,11 +944,13 @@ export class ClientProfileController {
             match: { isDeleted: { $ne: true } },
           },
         ])
-        .select(`
+        .select(
+          `
           profileId preferredServices averageRating totalReviews 
           loyaltyTier memberSince preferredContactMethod
           createdAt updatedAt
-        `)
+        `
+        )
         .lean()
         .exec();
 
@@ -763,7 +970,8 @@ export class ClientProfileController {
         totalReviews: clientProfile.totalReviews ?? 0,
         loyaltyTier: clientProfile.loyaltyTier ?? "bronze",
         memberSince: clientProfile.memberSince,
-        preferredContactMethod: clientProfile.preferredContactMethod ?? undefined,
+        preferredContactMethod:
+          clientProfile.preferredContactMethod ?? undefined,
         createdAt: clientProfile.createdAt,
         updatedAt: clientProfile.updatedAt,
       };
@@ -774,19 +982,28 @@ export class ClientProfileController {
         data: publicProfile,
       });
     } catch (error: unknown) {
-      console.error("Error retrieving public client profile by profile ID:", error);
+      console.error(
+        "Error retrieving public client profile by profile ID:",
+        error
+      );
 
       if (error instanceof Error) {
         res.status(500).json({
           success: false,
           message: "Failed to retrieve public client profile",
-          error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
+          error:
+            process.env.NODE_ENV === "development"
+              ? error.message
+              : "Internal server error",
         });
       } else {
         res.status(500).json({
           success: false,
           message: "Failed to retrieve public client profile",
-          error: process.env.NODE_ENV === "development" ? String(error) : "Internal server error",
+          error:
+            process.env.NODE_ENV === "development"
+              ? String(error)
+              : "Internal server error",
         });
       }
     }
@@ -794,16 +1011,18 @@ export class ClientProfileController {
 
   static async getClientStats(
     req: Request<{ id: string }>,
-    res: Response<ApiResponse<{
-      loyaltyTier?: "bronze" | "silver" | "gold" | "platinum";
-      memberSince?: Date;
-      lastActiveDate?: Date;
-      averageRating?: number;
-      totalReviews: number;
-      trustScore: number;
-      riskLevel: RiskLevel;
-      warningsCount: number;
-    }>>,
+    res: Response<
+      ApiResponse<{
+        loyaltyTier?: "bronze" | "silver" | "gold" | "platinum";
+        memberSince?: Date;
+        lastActiveDate?: Date;
+        averageRating?: number;
+        totalReviews: number;
+        trustScore: number;
+        riskLevel: RiskLevel;
+        warningsCount: number;
+      }>
+    >,
     next: NextFunction
   ): Promise<void> {
     try {
@@ -822,10 +1041,12 @@ export class ClientProfileController {
         isDeleted: { $ne: true },
         riskLevel: { $ne: RiskLevel.CRITICAL },
       })
-        .select(`
+        .select(
+          `
           loyaltyTier memberSince lastActiveDate averageRating 
           totalReviews trustScore riskLevel warningsCount
-        `)
+        `
+        )
         .lean()
         .exec();
 
@@ -838,7 +1059,13 @@ export class ClientProfileController {
       }
 
       const statsData = {
-        loyaltyTier: (clientProfile.loyaltyTier as "bronze" | "silver" | "gold" | "platinum" | undefined) ?? "bronze",
+        loyaltyTier:
+          (clientProfile.loyaltyTier as
+            | "bronze"
+            | "silver"
+            | "gold"
+            | "platinum"
+            | undefined) ?? "bronze",
         memberSince: clientProfile.memberSince,
         lastActiveDate: clientProfile.lastActiveDate,
         averageRating: clientProfile.averageRating ?? undefined,
@@ -874,137 +1101,160 @@ export class ClientProfileController {
 
   // Add this method to your ClientProfileController class
 
-static async getPublicClientProfiles(
-  req: Request,
-  res: Response<ApiResponse<{
-    profiles: Partial<ClientProfile>[];
-    pagination: {
-      currentPage: number;
-      totalPages: number;
-      totalCount: number;
-      hasNextPage: boolean;
-      hasPreviousPage: boolean;
-    };
-  }>>,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const {
-      page = 1,
-      limit = 12,
-      loyaltyTier,
-      minRating,
-      sortBy = "memberSince",
-      sortOrder = "desc",
-    } = req.query;
+  static async getPublicClientProfiles(
+    req: Request,
+    res: Response<
+      ApiResponse<{
+        profiles: Partial<ClientProfile>[];
+        pagination: {
+          currentPage: number;
+          totalPages: number;
+          totalCount: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
+        };
+      }>
+    >,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const {
+        page = 1,
+        limit = 12,
+        loyaltyTier,
+        minRating,
+        sortBy = "memberSince",
+        sortOrder = "desc",
+      } = req.query;
 
-    const pageNum = Math.max(1, parseInt(page as string));
-    const limitNum = Math.max(1, Math.min(50, parseInt(limit as string))); // Max 50 for public
-    const skip = (pageNum - 1) * limitNum;
+      const pageNum = Math.max(1, parseInt(page as string));
+      const limitNum = Math.max(1, Math.min(50, parseInt(limit as string))); // Max 50 for public
+      const skip = (pageNum - 1) * limitNum;
 
-    // Build filter - only show LOW and MEDIUM risk clients
-    const filter: any = {
-      isDeleted: { $ne: true },
-      riskLevel: { $in: [RiskLevel.LOW, RiskLevel.MEDIUM] },
-    };
+      // Build filter - only show LOW and MEDIUM risk clients
+      const filter: any = {
+        isDeleted: { $ne: true },
+        riskLevel: { $in: [RiskLevel.LOW, RiskLevel.MEDIUM] },
+      };
 
-    // Apply optional filters
-    if (loyaltyTier && ["bronze", "silver", "gold", "platinum"].includes(loyaltyTier as string)) {
-      filter.loyaltyTier = loyaltyTier;
-    }
-
-    if (minRating) {
-      const rating = parseFloat(minRating as string);
-      if (!isNaN(rating) && rating >= 0 && rating <= 5) {
-        filter.averageRating = { $gte: rating };
+      // Apply optional filters
+      if (
+        loyaltyTier &&
+        ["bronze", "silver", "gold", "platinum"].includes(loyaltyTier as string)
+      ) {
+        filter.loyaltyTier = loyaltyTier;
       }
-    }
 
-    // Build sort - only allow safe fields
-    const allowedSortFields = ["memberSince", "averageRating", "totalReviews", "loyaltyTier", "createdAt"];
-    const sortField = allowedSortFields.includes(sortBy as string) ? (sortBy as string) : "memberSince";
-    const sort: any = {};
-    sort[sortField] = sortOrder === "asc" ? 1 : -1;
+      if (minRating) {
+        const rating = parseFloat(minRating as string);
+        if (!isNaN(rating) && rating >= 0 && rating <= 5) {
+          filter.averageRating = { $gte: rating };
+        }
+      }
 
-    const [profiles, totalCount] = await Promise.all([
-      ClientProfileModel.find(filter)
-        .populate([
-          {
-            path: "profileId",
-            select: "bio location userId",
-            match: { isDeleted: { $ne: true } },
-            populate: {
-              path: "userId",
-              select: "firstName lastName",
+      // Build sort - only allow safe fields
+      const allowedSortFields = [
+        "memberSince",
+        "averageRating",
+        "totalReviews",
+        "loyaltyTier",
+        "createdAt",
+      ];
+      const sortField = allowedSortFields.includes(sortBy as string)
+        ? (sortBy as string)
+        : "memberSince";
+      const sort: any = {};
+      sort[sortField] = sortOrder === "asc" ? 1 : -1;
+
+      const [profiles, totalCount] = await Promise.all([
+        ClientProfileModel.find(filter)
+          .populate([
+            {
+              path: "profileId",
+              select: "bio location userId",
+              match: { isDeleted: { $ne: true } },
+              populate: {
+                path: "userId",
+                select: "firstName lastName",
+              },
             },
-          },
-          {
-            path: "preferredServices",
-            select: "name title description",
-            match: { isDeleted: { $ne: true } },
-          },
-        ])
-        .select(`
+            {
+              path: "preferredServices",
+              select: "name title description",
+              match: { isDeleted: { $ne: true } },
+            },
+          ])
+          .select(
+            `
           profileId preferredServices averageRating totalReviews 
           loyaltyTier memberSince preferredContactMethod
           createdAt updatedAt
-        `)
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .lean()
-        .exec(),
-      ClientProfileModel.countDocuments(filter).exec(),
-    ]);
+        `
+          )
+          .sort(sort)
+          .skip(skip)
+          .limit(limitNum)
+          .lean()
+          .exec(),
+        ClientProfileModel.countDocuments(filter).exec(),
+      ]);
 
-    const totalPages = Math.ceil(totalCount / limitNum);
+      const totalPages = Math.ceil(totalCount / limitNum);
 
-    // Map to public profile format
-    const publicProfiles: Partial<ClientProfile>[] = profiles.map((profile) => ({
-      _id: profile._id,
-      profileId: profile.profileId,
-      preferredServices: profile.preferredServices || [],
-      averageRating: profile.averageRating || undefined,
-      totalReviews: profile.totalReviews || 0,
-      loyaltyTier: profile.loyaltyTier || "bronze",
-      memberSince: profile.memberSince,
-      preferredContactMethod: profile.preferredContactMethod || undefined,
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
-    }));
+      // Map to public profile format
+      const publicProfiles: Partial<ClientProfile>[] = profiles.map(
+        (profile) => ({
+          _id: profile._id,
+          profileId: profile.profileId,
+          preferredServices: profile.preferredServices || [],
+          averageRating: profile.averageRating || undefined,
+          totalReviews: profile.totalReviews || 0,
+          loyaltyTier: profile.loyaltyTier || "bronze",
+          memberSince: profile.memberSince,
+          preferredContactMethod: profile.preferredContactMethod || undefined,
+          createdAt: profile.createdAt,
+          updatedAt: profile.updatedAt,
+        })
+      );
 
-    res.status(200).json({
-      success: true,
-      message: "Public client profiles retrieved successfully",
-      data: {
-        profiles: publicProfiles,
-        pagination: {
-          currentPage: pageNum,
-          totalPages,
-          totalCount,
-          hasNextPage: pageNum < totalPages,
-          hasPreviousPage: pageNum > 1,
+      res.status(200).json({
+        success: true,
+        message: "Public client profiles retrieved successfully",
+        data: {
+          profiles: publicProfiles,
+          pagination: {
+            currentPage: pageNum,
+            totalPages,
+            totalCount,
+            hasNextPage: pageNum < totalPages,
+            hasPreviousPage: pageNum > 1,
+          },
         },
-      },
-    });
-  } catch (error: unknown) {
-    console.error("Error retrieving public client profiles:", error);
+      });
+    } catch (error: unknown) {
+      console.error("Error retrieving public client profiles:", error);
 
-    if (error instanceof Error) {
-      res.status(500).json({
-        success: false,
-        message: "Failed to retrieve public client profiles",
-        error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: "Failed to retrieve public client profiles",
-        error: process.env.NODE_ENV === "development" ? String(error) : "Internal server error",
-      });
+      if (error instanceof Error) {
+        res.status(500).json({
+          success: false,
+          message: "Failed to retrieve public client profiles",
+          error:
+            process.env.NODE_ENV === "development"
+              ? error.message
+              : "Internal server error",
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: "Failed to retrieve public client profiles",
+          error:
+            process.env.NODE_ENV === "development"
+              ? String(error)
+              : "Internal server error",
+        });
+      }
     }
   }
-}
 }
 
 export default ClientProfileController;
